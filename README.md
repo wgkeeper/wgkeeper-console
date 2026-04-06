@@ -1,10 +1,20 @@
-<p align="center">
-  <img width="900" alt="WGKeeper logo" src="https://github.com/user-attachments/assets/f27d705f-48db-4b5f-b4ef-c937ab854189" />
-</p>
-
 <h1 align="center">WGKeeper Console</h1>
 
-<p align="center"><strong>Web admin console for managing WGKeeper nodes and WireGuard peers.</strong></p>
+<p align="center">
+  <strong>Web admin console for managing WGKeeper nodes and WireGuard peers.</strong>
+</p>
+
+<p align="center">
+  Manage your WireGuard infrastructure — nodes, peers, and access — in one place.
+</p>
+
+<p align="center">
+  <img width="1512" height="868" alt="wgkeeper-nodes-light" src="https://github.com/user-attachments/assets/27ceaf02-2cc0-4c23-91ef-0d31233e1152" />
+</p>
+
+<p align="center">
+  <em>Nodes overview with real-time status and health indicators</em>
+</p>
 
 <p align="center">
   <a href="https://github.com/wgkeeper/wgkeeper-console/actions/workflows/ci.yml">
@@ -23,15 +33,19 @@
 
 ---
 
-WGKeeper Console is the admin panel for WGKeeper. It gives you one place to connect nodes, inspect peer state, download generated configs, and manage access to the console itself.
+WGKeeper Console is the admin panel for WGKeeper. It gives you one place to manage your WireGuard infrastructure.
 
-This repository is a monolith:
+---
 
-- one backend API
-- one frontend admin UI
-- one deployable app for operators
+## Features
 
-For most users, the main way to run it is `docker compose`.
+- 🖥 Manage multiple WireGuard nodes from one UI  
+- 📊 Real-time node and peer status  
+- 🔐 Built-in access control for the admin console  
+- 📦 Download ready-to-use WireGuard configs  
+- 🐳 Simple deployment with Docker   
+
+---
 
 ## Quick start
 
