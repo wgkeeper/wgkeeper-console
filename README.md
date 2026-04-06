@@ -1,6 +1,27 @@
+<p align="center">
+  <img width="900" alt="WGKeeper logo" src="https://github.com/user-attachments/assets/f27d705f-48db-4b5f-b4ef-c937ab854189" />
+</p>
+
 <h1 align="center">WGKeeper Console</h1>
 
 <p align="center"><strong>Web admin console for managing WGKeeper nodes and WireGuard peers.</strong></p>
+
+<p align="center">
+  <a href="https://github.com/wgkeeper/wgkeeper-console/actions/workflows/ci.yml">
+    <img src="https://github.com/wgkeeper/wgkeeper-console/actions/workflows/ci.yml/badge.svg?branch=main" />
+  </a>
+  <a href="https://github.com/wgkeeper/wgkeeper-console/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/License-AGPL_v3-blue.svg" />
+  </a>
+  <a href="https://github.com/wgkeeper/wgkeeper-console/releases/latest">
+    <img src="https://img.shields.io/github/v/release/wgkeeper/wgkeeper-console" />
+  </a>
+  <a href="https://github.com/wgkeeper/wgkeeper-console/pkgs/container/console">
+    <img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fghcr-badge.elias.eu.org%2Fapi%2Fwgkeeper%2Fwgkeeper-console%2Fconsole&query=%24.downloadCount&label=image%20pulls&color=blue" />
+  </a>
+</p>
+
+---
 
 WGKeeper Console is the admin panel for WGKeeper. It gives you one place to connect nodes, inspect peer state, download generated configs, and manage access to the console itself.
 
