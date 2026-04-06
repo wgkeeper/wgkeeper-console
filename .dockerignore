@@ -1,0 +1,14 @@
+.git
+.gitignore
+*.md
+lefthook.yml
+docker-compose.yml
+Caddyfile
+
+frontend/node_modules
+frontend/dist
+
+backend/docs
+backend/public
+backend/tmp
+backend/*.db

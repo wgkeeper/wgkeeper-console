@@ -1,0 +1,37 @@
+pre-commit:
+  parallel: true
+  commands:
+    frontend-format:
+      glob: "frontend/src/**/*.{ts,tsx}"
+      run: cd frontend && pnpm format:check
+    frontend-lint:
+      glob: "frontend/src/**/*.{ts,tsx}"
+      run: cd frontend && pnpm lint
+    frontend-types:
+      glob: "frontend/src/**/*.{ts,tsx}"
+      run: cd frontend && pnpm exec tsc -b
+    backend-vet:
+      glob: "backend/**/*.go"
+      run: cd backend && go vet ./...
+    backend-build:
+      glob: "backend/**/*.go"
+      run: cd backend && go build -o /dev/null ./...
+    backend-staticcheck:
+      glob: "backend/**/*.go"
+      run: cd backend && staticcheck ./...
+
+pre-push:
+  parallel: true
+  commands:
+    frontend-build:
+      glob: "frontend/src/**/*.{ts,tsx}"
+      run: cd frontend && pnpm build
+    frontend-tests:
+      glob: "frontend/src/**/*.{ts,tsx}"
+      run: cd frontend && pnpm test
+    backend-build:
+      glob: "backend/**/*.go"
+      run: cd backend && go build -o /dev/null ./...
+    backend-tests:
+      glob: "backend/**/*.go"
+      run: cd backend && go test ./...

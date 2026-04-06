@@ -1,0 +1,29 @@
+services:
+  app:
+    build: .
+    container_name: wg-keeper-console
+    expose:
+      - "8000"
+    environment:
+      - PORT=8000
+      - DATABASE_URL=file:/app/data/wgkeeper-console.db
+      - NODE_ENV=production
+    volumes:
+      - wg-keeper-data:/app/data
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    container_name: wg-keeper-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  wg-keeper-data:
+    driver: local
