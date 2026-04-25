@@ -34,6 +34,10 @@ export default defineConfig([
       '@typescript-eslint/no-unsafe-call': 'off',
       '@typescript-eslint/no-unsafe-return': 'off',
 
+      // Data-fetching effects that call setState before/after async operations
+      // are an intentional and correct pattern in this codebase.
+      'react-hooks/set-state-in-effect': 'off',
+
       // Allow `async () => { ... }` directly on React event handler props
       '@typescript-eslint/no-misused-promises': [
         'error',

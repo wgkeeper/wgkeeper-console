@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import type { NodeItem, NodeListResponse } from './types';
 import { LoginScreen } from '@/components/auth/LoginScreen';
@@ -40,16 +40,14 @@ function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme);
   const navigate = useNavigate();
 
-  const apiFetchRef = useRef<ReturnType<typeof createApiFetch>>(undefined);
-  if (!apiFetchRef.current) {
-    apiFetchRef.current = createApiFetch(() => {
+  const [apiFetch] = useState(() =>
+    createApiFetch(() => {
       setIsAuthed(false);
       setMustChangePassword(false);
       setNodes([]);
       setUsername(null);
-    });
-  }
-  const apiFetch = apiFetchRef.current;
+    }),
+  );
 
   useEffect(() => {
     const controller = new AbortController();
