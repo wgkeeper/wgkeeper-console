@@ -366,7 +366,7 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
                     {stats.wireguard?.listenPort != null && (
                       <div className="flex flex-col gap-0.5">
                         <span className="text-[10px] tracking-wide text-muted-foreground uppercase">
-                          Listen port
+                          WireGuard port
                         </span>
                         <span className="font-mono text-sm">{stats.wireguard.listenPort}</span>
                       </div>
@@ -396,7 +396,12 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
         </TabsContent>
 
         <TabsContent value="config">
-          <NodeConfigTab nodeId={node.id} apiFetch={apiFetch} onPeersChanged={handlePeersChanged} />
+          <NodeConfigTab
+            nodeId={node.id}
+            apiFetch={apiFetch}
+            onPeersChanged={handlePeersChanged}
+            supportedAddressFamilies={stats?.wireguard?.addressFamilies}
+          />
         </TabsContent>
       </Tabs>
     </div>

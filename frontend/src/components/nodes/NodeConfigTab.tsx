@@ -16,13 +16,28 @@ import { Separator } from '@/components/ui/separator';
 import { renderConfig } from '@/lib/config-utils';
 import { generateUUID, isValidDnsValue, isValidUuidV4 } from '@/lib/validation';
 
+type AddressFamily = 'IPv4' | 'IPv6';
+
 type Props = {
   nodeId: string;
   apiFetch: (path: string, options?: RequestInit) => Promise<Response>;
   onPeersChanged?: () => void;
+  supportedAddressFamilies?: string[];
 };
 
-export const NodeConfigTab = ({ nodeId, apiFetch, onPeersChanged }: Props) => {
+const ALL_FAMILIES: readonly AddressFamily[] = ['IPv4', 'IPv6'];
+
+const filterSupported = (supported?: string[]): AddressFamily[] => {
+  if (!supported || supported.length === 0) return [...ALL_FAMILIES];
+  return ALL_FAMILIES.filter((f) => supported.includes(f));
+};
+
+export const NodeConfigTab = ({
+  nodeId,
+  apiFetch,
+  onPeersChanged,
+  supportedAddressFamilies,
+}: Props) => {
   const [configPeerId, setConfigPeerId] = useState('');
   const [configDns1, setConfigDns1] = useState('1.1.1.1');
   const [configDns2, setConfigDns2] = useState('1.0.0.1');
@@ -30,10 +45,17 @@ export const NodeConfigTab = ({ nodeId, apiFetch, onPeersChanged }: Props) => {
   const [configDns4, setConfigDns4] = useState('2606:4700:4700::1001');
   const [configExpiresAt, setConfigExpiresAt] = useState('');
   const [configExpiresAtTime, setConfigExpiresAtTime] = useState('');
-  const [configAddressFamilies, setConfigAddressFamilies] = useState<('IPv4' | 'IPv6')[]>([
-    'IPv4',
-    'IPv6',
-  ]);
+  const renderedFamilies = filterSupported(supportedAddressFamilies);
+  const [configAddressFamilies, setConfigAddressFamilies] = useState<AddressFamily[]>([]);
+
+  // Drop selections that aren't supported by the node once stats load.
+  useEffect(() => {
+    setConfigAddressFamilies((prev) => {
+      const filtered = prev.filter((f) => renderedFamilies.includes(f));
+      return filtered.length === prev.length ? prev : filtered;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supportedAddressFamilies?.join(',')]);
   const [configText, setConfigText] = useState('');
   const [configError, setConfigError] = useState('');
   const [configNotice, setConfigNotice] = useState('');
@@ -233,7 +255,7 @@ export const NodeConfigTab = ({ nodeId, apiFetch, onPeersChanged }: Props) => {
               Address families (optional)
             </Label>
             <div className="flex gap-5">
-              {(['IPv4', 'IPv6'] as const).map((family) => (
+              {renderedFamilies.map((family) => (
                 <label key={family} className="flex cursor-pointer items-center gap-2">
                   <input
                     type="checkbox"
@@ -250,7 +272,7 @@ export const NodeConfigTab = ({ nodeId, apiFetch, onPeersChanged }: Props) => {
               ))}
             </div>
             <p className="text-xs text-muted-foreground">
-              Leave both unchecked to use all families the node supports.
+              Leave all unchecked to use every family the node supports.
             </p>
           </div>
 
