@@ -203,7 +203,7 @@ func (h *DashboardHandler) CreateNode(c *gin.Context) {
 // @Param        request  body      CheckNodeRequest  true  "Node connection info"
 // @Success      200      {object}  CheckNodeResponse
 // @Failure      400      {object}  map[string]interface{}  "Bad request"
-// @Failure      401      {object}  map[string]interface{}  "Unauthorized or invalid API key"
+// @Failure      422      {object}  map[string]interface{}  "Invalid API key for the upstream node"
 // @Router       /nodes/check [post]
 func (h *DashboardHandler) CheckNode(c *gin.Context) {
 	var body CheckNodeRequest
@@ -228,7 +228,7 @@ func (h *DashboardHandler) CheckNode(c *gin.Context) {
 	}
 
 	if health.Error == "invalid_api_key" {
-		c.JSON(http.StatusUnauthorized, gin.H{"ok": false, "error": "invalid_api_key"})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"ok": false, "error": "invalid_api_key"})
 		return
 	}
 
@@ -248,7 +248,6 @@ func (h *DashboardHandler) CheckNode(c *gin.Context) {
 // @Produce      json
 // @Param        id   path      string  true  "Node ID"
 // @Success      200  {object}  map[string]interface{}  "Node statistics"
-// @Failure      401   {object}  map[string]interface{}  "Unauthorized"
 // @Failure      502   {object}  map[string]interface{}  "Stats unavailable"
 // @Router       /nodes/{id}/stats [get]
 func (h *DashboardHandler) GetNodeStats(c *gin.Context) {
@@ -261,18 +260,26 @@ func (h *DashboardHandler) GetNodeStats(c *gin.Context) {
 	stats, err := h.service.GetNodeStats(id)
 	if err != nil || stats == nil || stats.Data == nil {
 		statusCode := http.StatusBadGateway
+		errorCode := "stats_unavailable"
 		var statusPtr *int
 		var endpointPtr *string
 		if stats != nil {
 			if stats.StatusCode != nil && *stats.StatusCode >= 400 && *stats.StatusCode < 600 {
-				statusCode = *stats.StatusCode
+				// Don't bubble upstream 401/403 — the frontend treats those as
+				// admin-session expiry and redirects to /login. Surface them as
+				// 502 with an explicit error code instead.
+				if *stats.StatusCode == http.StatusUnauthorized || *stats.StatusCode == http.StatusForbidden {
+					errorCode = "invalid_api_key"
+				} else {
+					statusCode = *stats.StatusCode
+				}
 			}
 			statusPtr = stats.StatusCode
 			endpointPtr = stats.Endpoint
 		}
 		c.JSON(statusCode, gin.H{
 			"ok":       false,
-			"error":    "stats_unavailable",
+			"error":    errorCode,
 			"status":   statusPtr,
 			"endpoint": endpointPtr,
 		})
@@ -295,7 +302,6 @@ func (h *DashboardHandler) GetNodeStats(c *gin.Context) {
 // @Param        addressFamilies query     string  false  "Address families (IPv4,IPv6)"
 // @Success      200             {string}  string  "WireGuard config file"
 // @Failure      400             {object}  map[string]interface{}  "Bad request"
-// @Failure      401             {object}  map[string]interface{}  "Unauthorized"
 // @Failure      502             {object}  map[string]interface{}  "Config unavailable"
 // @Router       /nodes/{id}/config [get]
 func (h *DashboardHandler) GetNodeConfig(c *gin.Context) {
@@ -346,13 +352,21 @@ func (h *DashboardHandler) GetNodeConfig(c *gin.Context) {
 	config, err := h.service.GetNodeConfig(id, peerID, dns, expiresAt, addressFamilies)
 	if err != nil || config == nil || config.Data == nil {
 		statusCode := http.StatusBadGateway
+		topErrorCode := "config_unavailable"
 		var statusPtr *int
 		var endpointPtr *string
 		errorCode := ""
 		errorMessage := ""
 		if config != nil {
 			if config.StatusCode != nil && *config.StatusCode >= 400 && *config.StatusCode < 600 {
-				statusCode = *config.StatusCode
+				// Don't bubble upstream 401/403 — the frontend treats those as
+				// admin-session expiry and redirects to /login. Surface them as
+				// 502 with an explicit error code instead.
+				if *config.StatusCode == http.StatusUnauthorized || *config.StatusCode == http.StatusForbidden {
+					topErrorCode = "invalid_api_key"
+				} else {
+					statusCode = *config.StatusCode
+				}
 			}
 			statusPtr = config.StatusCode
 			endpointPtr = config.Endpoint
@@ -370,7 +384,7 @@ func (h *DashboardHandler) GetNodeConfig(c *gin.Context) {
 
 		response := gin.H{
 			"ok":       false,
-			"error":    "config_unavailable",
+			"error":    topErrorCode,
 			"status":   statusPtr,
 			"endpoint": endpointPtr,
 		}

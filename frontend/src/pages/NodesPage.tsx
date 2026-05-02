@@ -144,13 +144,11 @@ export const NodesPage = ({
       let errorMessage = 'Node is not responding.';
       try {
         const errorBody = (await res.json()) as { error?: string };
-        if (errorBody?.error === 'invalid_api_key' || res.status === 401 || res.status === 403) {
+        if (errorBody?.error === 'invalid_api_key') {
           errorMessage = 'Invalid X_API_KEY.';
         }
       } catch {
-        if (res.status === 401 || res.status === 403) {
-          errorMessage = 'Invalid X_API_KEY.';
-        }
+        // ignore parse error, fall back to default message
       }
       setNodeCheckError(errorMessage);
       setIsCheckingNode(false);
