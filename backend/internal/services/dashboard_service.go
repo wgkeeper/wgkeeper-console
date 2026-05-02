@@ -672,15 +672,32 @@ func (s *DashboardService) fetchConfigData(address string, apiKey string, peerID
 			}
 			allowedIPs := peer.AllowedIPs
 			allowedIP := ""
+			hasV4 := false
+			hasV6 := false
 			if len(allowedIPs) > 0 {
 				var filtered []string
 				for _, ip := range allowedIPs {
 					trimmed := strings.TrimSpace(ip)
-					if trimmed != "" {
-						filtered = append(filtered, trimmed)
+					if trimmed == "" {
+						continue
+					}
+					filtered = append(filtered, trimmed)
+					addr := trimmed
+					if idx := strings.Index(addr, "/"); idx >= 0 {
+						addr = addr[:idx]
+					}
+					if strings.Contains(addr, ":") {
+						hasV6 = true
+					} else if strings.Contains(addr, ".") {
+						hasV4 = true
 					}
 				}
 				allowedIP = strings.Join(filtered, ", ")
+			}
+			// Defensive: if family detection failed, route both (preserves prior behavior).
+			if !hasV4 && !hasV6 {
+				hasV4 = true
+				hasV6 = true
 			}
 			presharedKey := ""
 			if peer.PresharedKey != nil {
@@ -703,10 +720,29 @@ func (s *DashboardService) fetchConfigData(address string, apiKey string, peerID
 				}, nil
 			}
 
-			effectiveDNS := dns
-			if len(effectiveDNS) == 0 {
-				effectiveDNS = []string{"1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001"}
+			candidateDNS := dns
+			if len(candidateDNS) == 0 {
+				candidateDNS = []string{"1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001"}
 			}
+			var effectiveDNS []string
+			for _, d := range candidateDNS {
+				if strings.Contains(d, ":") {
+					if hasV6 {
+						effectiveDNS = append(effectiveDNS, d)
+					}
+				} else if hasV4 {
+					effectiveDNS = append(effectiveDNS, d)
+				}
+			}
+
+			var allowedIPsParts []string
+			if hasV4 {
+				allowedIPsParts = append(allowedIPsParts, "0.0.0.0/0")
+			}
+			if hasV6 {
+				allowedIPsParts = append(allowedIPsParts, "::/0")
+			}
+			allowedIPsLine := strings.Join(allowedIPsParts, ", ")
 
 			config := fmt.Sprintf(`[Interface]
 PrivateKey = %s
@@ -716,11 +752,11 @@ DNS = %s
 [Peer]
 PublicKey = %s
 PresharedKey = %s
-AllowedIPs = 0.0.0.0/0, ::/0
+AllowedIPs = %s
 Endpoint = %s:%d
 PersistentKeepalive = 25
 
-`, privateKey, allowedIP, strings.Join(effectiveDNS, ", "), serverPublicKey, presharedKey, host, listenPort)
+`, privateKey, allowedIP, strings.Join(effectiveDNS, ", "), serverPublicKey, presharedKey, allowedIPsLine, host, listenPort)
 
 			return &ConfigResponse{
 				Data:       &config,

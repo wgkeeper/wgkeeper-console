@@ -234,16 +234,6 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
           >
             <RefreshCw className={`size-4 ${isRefreshingStatus ? 'animate-spin' : ''}`} />
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            disabled={isDeleting}
-            onClick={() => setDeleteDialogOpen(true)}
-          >
-            <Trash2 className="size-3.5" />
-            Delete
-          </Button>
         </div>
       </div>
 
@@ -389,6 +379,27 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
               ) : null}
             </CardContent>
           </Card>
+
+          <Card className="border-destructive/40">
+            <CardHeader>
+              <CardTitle className="text-destructive">Danger zone</CardTitle>
+              <CardDescription>
+                Removes the node from the console. The remote server configuration is not changed.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="gap-1.5"
+                disabled={isDeleting}
+                onClick={() => setDeleteDialogOpen(true)}
+              >
+                <Trash2 className="size-3.5" />
+                Delete node
+              </Button>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="peers">
@@ -401,6 +412,7 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
             apiFetch={apiFetch}
             onPeersChanged={handlePeersChanged}
             supportedAddressFamilies={stats?.wireguard?.addressFamilies}
+            isStatsLoading={statsLoading && !stats}
           />
         </TabsContent>
       </Tabs>
