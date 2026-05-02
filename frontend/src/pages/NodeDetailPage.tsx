@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ChevronRight, RefreshCw, Server, Trash2, Clock, TriangleAlert } from 'lucide-react';
+import {
+  AlertCircle,
+  ChevronRight,
+  RefreshCw,
+  Server,
+  Trash2,
+  Clock,
+  TriangleAlert,
+} from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,7 +17,6 @@ import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -21,6 +29,7 @@ import type { NodeItem, NodeStats } from '../types';
 import { NodeConfigTab } from '@/components/nodes/NodeConfigTab';
 import { NodePeersTab } from '@/components/nodes/NodePeersTab';
 import { formatDate } from '@/lib/peer-utils';
+import { rateLimitMessage } from '@/lib/api-client';
 
 type Props = {
   nodes: NodeItem[];
@@ -51,6 +60,7 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRefreshingStatus, setIsRefreshingStatus] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   const nodeId = node?.id;
   useEffect(() => {
@@ -86,16 +96,27 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
   const handleDeleteNode = async () => {
     if (!node) return;
     setIsDeleting(true);
+    setDeleteError('');
     try {
       const res = await apiFetch(`/api/nodes/${encodeURIComponent(node.id)}`, {
         method: 'DELETE',
       });
       if (res.ok) {
+        setDeleteDialogOpen(false);
         await onReloadNodes();
         void navigate('/nodes');
+        return;
       }
+      if (res.status === 404) {
+        // Already gone — treat as success and reconcile the list.
+        setDeleteDialogOpen(false);
+        await onReloadNodes();
+        void navigate('/nodes');
+        return;
+      }
+      setDeleteError(rateLimitMessage(res) ?? 'Failed to delete node. Please try again.');
     } catch {
-      // best-effort
+      setDeleteError('Network error. Please try again.');
     } finally {
       setIsDeleting(false);
     }
@@ -237,7 +258,13 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
         </div>
       </div>
 
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <AlertDialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) setDeleteError('');
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete node?</AlertDialogTitle>
@@ -246,14 +273,24 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
               configuration.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {deleteError && (
+            <Alert variant="destructive">
+              <AlertCircle className="size-4" />
+              <AlertDescription>{deleteError}</AlertDescription>
+            </Alert>
+          )}
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={handleDeleteNode}
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={isDeleting}
+              onClick={(e) => {
+                e.preventDefault();
+                void handleDeleteNode();
+              }}
             >
-              Delete
-            </AlertDialogAction>
+              {isDeleting ? 'Deleting…' : 'Delete'}
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

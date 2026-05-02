@@ -14,6 +14,21 @@ export function fetchErrorMessage(err: unknown): string | null {
 }
 
 /**
+ * Returns a user-facing rate-limit message for a 429 response, or null if the
+ * response isn't a 429. Reads the Retry-After header for a specific countdown
+ * when present.
+ */
+export function rateLimitMessage(res: Response): string | null {
+  if (res.status !== 429) return null;
+  const header = res.headers.get('Retry-After');
+  const seconds = header ? parseInt(header, 10) : NaN;
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return `Too many requests. Try again in ${seconds} second${seconds === 1 ? '' : 's'}.`;
+  }
+  return 'Too many requests. Please try again later.';
+}
+
+/**
  * Creates a fetch wrapper that:
  * - Uses cookie-based auth via credentials=include
  * - Applies a per-request timeout (default 30 s); merges with caller's AbortSignal

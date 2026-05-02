@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { renderConfig } from '@/lib/config-utils';
+import { rateLimitMessage } from '@/lib/api-client';
 import { generateUUID, isValidDnsValue, isValidUuidV4 } from '@/lib/validation';
 
 type AddressFamily = 'IPv4' | 'IPv6';
@@ -142,16 +143,28 @@ export const NodeConfigTab = ({
       `/api/nodes/${encodeURIComponent(nodeId)}/config?${query.toString()}`,
     );
     if (!res.ok) {
+      const rl = rateLimitMessage(res);
+      if (rl) {
+        setConfigError(rl);
+        setIsConfigLoading(false);
+        return;
+      }
       try {
         const body = (await res.json()) as {
+          error?: string;
           status?: number;
           endpoint?: string;
           errorCode?: string;
           errorMessage?: string;
         };
+        const topError = body?.error;
         const code = body?.errorCode;
         const msg = body?.errorMessage?.trim();
-        if (msg) {
+        if (topError === 'invalid_api_key') {
+          setConfigError("This node's stored X_API_KEY is no longer valid.");
+        } else if (topError === 'incomplete_peer_response') {
+          setConfigError('The node returned an incomplete peer record.');
+        } else if (msg) {
           setConfigError(msg);
         } else if (code === 'invalid_expires_at') {
           setConfigError('Expiration date must be in the future.');
@@ -164,12 +177,7 @@ export const NodeConfigTab = ({
         } else if (code === 'server_info_unavailable' || code === 'wireguard_error') {
           setConfigError(msg || 'Node or WireGuard error. Try again later.');
         } else {
-          const parts = [];
-          if (body?.status) parts.push(`node ${body.status}`);
-          if (body?.endpoint) parts.push(body.endpoint);
-          setConfigError(
-            `Config is unavailable${res.status ? ` (${res.status})` : ''}${parts.length ? ` (${parts.join(', ')})` : ''}.`,
-          );
+          setConfigError('Config is unavailable.');
         }
       } catch {
         setConfigError('Config is unavailable.');

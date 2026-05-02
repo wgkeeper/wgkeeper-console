@@ -65,12 +65,18 @@ func NewDashboardHandler() *DashboardHandler {
 }
 
 func parseNodeAddress(raw string) (string, bool) {
-	address := strings.TrimRight(strings.TrimSpace(raw), "/")
-	u, err := url.Parse(address)
+	trimmed := strings.TrimRight(strings.TrimSpace(raw), "/")
+	u, err := url.Parse(trimmed)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return "", false
 	}
-	return address, true
+	// Strip path/query/fragment — node addresses are bases that endpoints get
+	// appended to (e.g. "/readyz", "/peers"), so anything past the host would
+	// produce malformed upstream URLs.
+	u.Path = ""
+	u.RawQuery = ""
+	u.Fragment = ""
+	return strings.TrimRight(u.String(), "/"), true
 }
 
 // GetNodes godoc
@@ -259,25 +265,21 @@ func (h *DashboardHandler) GetNodeStats(c *gin.Context) {
 
 	stats, err := h.service.GetNodeStats(id)
 	if err != nil || stats == nil || stats.Data == nil {
-		statusCode := http.StatusBadGateway
+		// Always return 502 for upstream failures — our backend's status code
+		// stays meaningful (502 = upstream failed). The upstream's actual code
+		// is preserved in the response body for diagnostics.
 		errorCode := "stats_unavailable"
 		var statusPtr *int
 		var endpointPtr *string
 		if stats != nil {
-			if stats.StatusCode != nil && *stats.StatusCode >= 400 && *stats.StatusCode < 600 {
-				// Don't bubble upstream 401/403 — the frontend treats those as
-				// admin-session expiry and redirects to /login. Surface them as
-				// 502 with an explicit error code instead.
-				if *stats.StatusCode == http.StatusUnauthorized || *stats.StatusCode == http.StatusForbidden {
-					errorCode = "invalid_api_key"
-				} else {
-					statusCode = *stats.StatusCode
-				}
+			if stats.StatusCode != nil &&
+				(*stats.StatusCode == http.StatusUnauthorized || *stats.StatusCode == http.StatusForbidden) {
+				errorCode = "invalid_api_key"
 			}
 			statusPtr = stats.StatusCode
 			endpointPtr = stats.Endpoint
 		}
-		c.JSON(statusCode, gin.H{
+		c.JSON(http.StatusBadGateway, gin.H{
 			"ok":       false,
 			"error":    errorCode,
 			"status":   statusPtr,
@@ -351,22 +353,22 @@ func (h *DashboardHandler) GetNodeConfig(c *gin.Context) {
 
 	config, err := h.service.GetNodeConfig(id, peerID, dns, expiresAt, addressFamilies)
 	if err != nil || config == nil || config.Data == nil {
-		statusCode := http.StatusBadGateway
+		// Always 502 for upstream failures — upstream's actual code stays in
+		// the response body for diagnostics.
 		topErrorCode := "config_unavailable"
 		var statusPtr *int
 		var endpointPtr *string
 		errorCode := ""
 		errorMessage := ""
 		if config != nil {
-			if config.StatusCode != nil && *config.StatusCode >= 400 && *config.StatusCode < 600 {
-				// Don't bubble upstream 401/403 — the frontend treats those as
-				// admin-session expiry and redirects to /login. Surface them as
-				// 502 with an explicit error code instead.
-				if *config.StatusCode == http.StatusUnauthorized || *config.StatusCode == http.StatusForbidden {
-					topErrorCode = "invalid_api_key"
-				} else {
-					statusCode = *config.StatusCode
-				}
+			if config.StatusCode != nil &&
+				(*config.StatusCode == http.StatusUnauthorized || *config.StatusCode == http.StatusForbidden) {
+				topErrorCode = "invalid_api_key"
+			} else if config.StatusCode != nil && *config.StatusCode == http.StatusOK {
+				// Upstream returned 200 but the peer payload was incomplete —
+				// surface a distinct code so the frontend doesn't render a
+				// confusing "(node 200, /peers)" message.
+				topErrorCode = "incomplete_peer_response"
 			}
 			statusPtr = config.StatusCode
 			endpointPtr = config.Endpoint
@@ -394,7 +396,7 @@ func (h *DashboardHandler) GetNodeConfig(c *gin.Context) {
 		if errorMessage != "" {
 			response["errorMessage"] = errorMessage
 		}
-		c.JSON(statusCode, response)
+		c.JSON(http.StatusBadGateway, response)
 		return
 	}
 

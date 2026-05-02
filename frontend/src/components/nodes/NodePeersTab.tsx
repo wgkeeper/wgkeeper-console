@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowUpDown,
   ChevronLeft,
@@ -34,7 +34,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { renderConfig } from '@/lib/config-utils';
-import { fetchErrorMessage } from '@/lib/api-client';
+import { fetchErrorMessage, rateLimitMessage } from '@/lib/api-client';
 import { formatBytes, formatDate, formatExpires, truncate, PAGE_SIZES } from '@/lib/peer-utils';
 import { usePeerDetail } from '@/hooks/usePeerDetail';
 import type { PeersResponse } from '@/types';
@@ -109,13 +109,20 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
     }
   }, [refreshTrigger, loadPeers]);
 
+  const deleteAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => deleteAbortRef.current?.abort(), []);
+
   const handleDeletePeer = async (peerId: string) => {
+    deleteAbortRef.current?.abort();
+    const controller = new AbortController();
+    deleteAbortRef.current = controller;
     setIsDeleting(true);
     setPeersError('');
     try {
       const res = await apiFetch(
         `/api/nodes/${encodeURIComponent(nodeId)}/peers?peerId=${encodeURIComponent(peerId)}`,
-        { method: 'DELETE' },
+        { method: 'DELETE', signal: controller.signal },
       );
       if (res.ok) {
         if (detailPeerId === peerId) {
@@ -124,12 +131,13 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
         setDeletePeerId(null);
         void loadPeers();
       } else {
-        setPeersError('Failed to delete peer.');
+        setPeersError(rateLimitMessage(res) ?? 'Failed to delete peer.');
       }
     } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
       setPeersError(fetchErrorMessage(err) ?? 'Failed to delete peer.');
     } finally {
-      setIsDeleting(false);
+      if (!controller.signal.aborted) setIsDeleting(false);
     }
   };
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { fetchErrorMessage } from '@/lib/api-client';
+import { fetchErrorMessage, rateLimitMessage } from '@/lib/api-client';
 import type { PeerDetail } from '@/types';
 
 type ApiFetch = (path: string, options?: RequestInit) => Promise<Response>;
@@ -27,10 +27,12 @@ export function usePeerDetail(
   const [isConfigLoading, setIsConfigLoading] = useState(false);
   const [configCopied, setConfigCopied] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const regenerateAbortRef = useRef<AbortController | null>(null);
 
   useEffect(
     () => () => {
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      regenerateAbortRef.current?.abort();
     },
     [],
   );
@@ -44,11 +46,13 @@ export function usePeerDetail(
       setConfigCopied(false);
       return;
     }
-    let cancelled = false;
+    const controller = new AbortController();
     setDetailLoading(true);
-    apiFetch(`/api/nodes/${encodeURIComponent(nodeId)}/peers/${encodeURIComponent(peerId)}`)
+    apiFetch(`/api/nodes/${encodeURIComponent(nodeId)}/peers/${encodeURIComponent(peerId)}`, {
+      signal: controller.signal,
+    })
       .then((res) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         if (!res.ok) {
           setDetail(null);
           return;
@@ -56,20 +60,24 @@ export function usePeerDetail(
         return res.json() as Promise<PeerDetail>;
       })
       .then((data) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         if (data) setDetail(data);
         setDetailLoading(false);
       })
-      .catch(() => {
-        if (!cancelled) setDetailLoading(false);
+      .catch((err: unknown) => {
+        if ((err as Error).name === 'AbortError') return;
+        setDetailLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [nodeId, peerId, apiFetch]);
 
   const handleRegenerateConfig = useCallback(async () => {
     if (!peerId || !nodeId) return;
+    // Cancel any previous in-flight regenerate so a stale response can't
+    // overwrite a fresh one (and unmount aborts via the cleanup effect).
+    regenerateAbortRef.current?.abort();
+    const controller = new AbortController();
+    regenerateAbortRef.current = controller;
     setConfigError('');
     setConfigText('');
     setConfigCopied(false);
@@ -77,18 +85,30 @@ export function usePeerDetail(
     try {
       const res = await apiFetch(
         `/api/nodes/${encodeURIComponent(nodeId)}/config?peerId=${encodeURIComponent(peerId)}`,
+        { signal: controller.signal },
       );
       if (!res.ok) {
+        const rl = rateLimitMessage(res);
+        if (rl) {
+          setConfigError(rl);
+          return;
+        }
         try {
           const body = (await res.json()) as {
+            error?: string;
             status?: number;
             endpoint?: string;
             errorCode?: string;
             errorMessage?: string;
           };
+          const topError = body?.error;
           const code = body?.errorCode;
           const msg = body?.errorMessage?.trim();
-          if (msg) {
+          if (topError === 'invalid_api_key') {
+            setConfigError("This node's stored X_API_KEY is no longer valid.");
+          } else if (topError === 'incomplete_peer_response') {
+            setConfigError('The node returned an incomplete peer record.');
+          } else if (msg) {
             setConfigError(msg);
           } else if (code === 'invalid_peer_id') {
             setConfigError('peerId must be a valid UUID v4.');
@@ -97,14 +117,7 @@ export function usePeerDetail(
           } else if (code === 'server_info_unavailable' || code === 'wireguard_error') {
             setConfigError(msg || 'Node or WireGuard error. Try again later.');
           } else {
-            const parts: string[] = [];
-            if (body?.status) parts.push(`node ${body.status}`);
-            if (body?.endpoint) parts.push(body.endpoint);
-            setConfigError(
-              `Config is unavailable${res.status ? ` (${res.status})` : ''}${
-                parts.length ? ` (${parts.join(', ')})` : ''
-              }.`,
-            );
+            setConfigError('Config is unavailable.');
           }
         } catch {
           setConfigError('Config is unavailable.');
@@ -113,9 +126,10 @@ export function usePeerDetail(
       }
       setConfigText(await res.text());
     } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
       setConfigError(fetchErrorMessage(err) ?? 'Config is unavailable.');
     } finally {
-      setIsConfigLoading(false);
+      if (!controller.signal.aborted) setIsConfigLoading(false);
     }
   }, [nodeId, peerId, apiFetch]);
 

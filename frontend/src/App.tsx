@@ -5,7 +5,7 @@ import { LoginScreen } from '@/components/auth/LoginScreen';
 import { ChangePasswordScreen } from '@/components/auth/ChangePasswordScreen';
 import { AppShell } from '@/components/layout/AppShell';
 import { Skeleton } from '@/components/ui/skeleton';
-import { createApiFetch } from '@/lib/api-client';
+import { createApiFetch, rateLimitMessage, REQUEST_TIMEOUT_MS } from '@/lib/api-client';
 import { NODES_PAGE_SIZE } from '@/lib/peer-utils';
 
 const getInitialTheme = (): 'light' | 'dark' => {
@@ -55,9 +55,10 @@ function App() {
 
     const bootstrap = async () => {
       try {
+        const mergedSignal = AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
         const meRes = await fetch('/api/me', {
           credentials: 'include',
-          signal,
+          signal: mergedSignal,
         });
         if (meRes.ok) {
           setIsAuthed(true);
@@ -71,8 +72,11 @@ function App() {
           setIsAuthed(false);
         }
       } catch (err) {
-        if ((err as Error).name === 'AbortError') return;
-        throw err;
+        const name = (err as Error).name;
+        // Treat unmount/timeout as "not authenticated" so the login screen
+        // appears instead of an indefinite skeleton.
+        if (name === 'AbortError' && signal.aborted) return;
+        setIsAuthed(false);
       } finally {
         if (!signal.aborted) setIsLoading(false);
       }
@@ -124,17 +128,32 @@ function App() {
     setLoginError('');
     setIsLoginSubmitting(true);
 
-    const res = await fetch('/api/login', {
-      method: 'POST',
-      body: JSON.stringify(loginForm),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-    });
+    let res: Response;
+    try {
+      res = await fetch('/api/login', {
+        method: 'POST',
+        body: JSON.stringify(loginForm),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch {
+      setLoginError('Network error. Please try again.');
+      setIsLoginSubmitting(false);
+      return;
+    }
 
     if (!res.ok) {
-      setLoginError('Invalid username or password.');
+      const rateLimited = rateLimitMessage(res);
+      if (rateLimited) {
+        setLoginError(rateLimited);
+      } else if (res.status === 401) {
+        setLoginError('Invalid username or password.');
+      } else {
+        setLoginError('Login failed. Please try again.');
+      }
       setIsLoginSubmitting(false);
       return;
     }

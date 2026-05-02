@@ -35,7 +35,8 @@ export function formatExpires(iso: string | null | undefined): string {
   }
 }
 
-export function truncate(s: string, len: number): string {
+export function truncate(s: string | null | undefined, len: number): string {
+  if (!s) return '';
   if (s.length <= len) return s;
   return s.slice(0, len) + '…';
 }

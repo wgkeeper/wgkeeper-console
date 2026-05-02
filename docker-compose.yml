@@ -8,6 +8,12 @@ services:
       - PORT=8000
       - DATABASE_URL=file:/app/data/wgkeeper-console.db
       - NODE_ENV=production
+      # Trust X-Forwarded-For from Caddy on the internal network so per-IP
+      # rate-limits apply per real client, not to all users via the proxy IP.
+      # Port 8000 is not published, so only the proxy can reach the app.
+      - TRUSTED_PROXIES=172.16.0.0/12,192.168.0.0/16,10.0.0.0/8,127.0.0.1
+    networks:
+      - internal
     volumes:
       - wg-keeper-data:/app/data
     restart: unless-stopped
@@ -20,9 +26,15 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    networks:
+      - internal
     depends_on:
       - app
     restart: unless-stopped
+
+networks:
+  internal:
+    driver: bridge
 
 volumes:
   wg-keeper-data:

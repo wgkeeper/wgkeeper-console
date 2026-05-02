@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/pagination';
 import type { NodeCheckResult, NodeItem } from '../types';
 import { NODES_PAGE_SIZE } from '@/lib/peer-utils';
+import { rateLimitMessage } from '@/lib/api-client';
 
 type Props = {
   nodes: NodeItem[];
@@ -109,16 +110,22 @@ export const NodesPage = ({
       await onReloadNodes(1);
     } else {
       setNodeCheck(null);
-      try {
-        const body = (await res.json()) as { error?: string };
-        if (body?.error === 'node_exists' || res.status === 409) {
-          setNodeCheckError('A node with this address already exists.');
-        }
-      } catch {
-        if (res.status === 409) {
-          setNodeCheckError('A node with this address already exists.');
+      let message = rateLimitMessage(res) ?? 'Failed to add node. Please try again.';
+      if (!rateLimitMessage(res)) {
+        try {
+          const body = (await res.json()) as { error?: string };
+          if (body?.error === 'node_exists' || res.status === 409) {
+            message = 'A node with this address already exists.';
+          } else if (body?.error === 'invalid_input') {
+            message = 'Address or X_API_KEY is invalid.';
+          }
+        } catch {
+          if (res.status === 409) {
+            message = 'A node with this address already exists.';
+          }
         }
       }
+      setNodeCheckError(message);
     }
     setIsCreatingNode(false);
   };
@@ -141,14 +148,16 @@ export const NodesPage = ({
 
     if (!res.ok) {
       setNodeCheck(null);
-      let errorMessage = 'Node is not responding.';
-      try {
-        const errorBody = (await res.json()) as { error?: string };
-        if (errorBody?.error === 'invalid_api_key') {
-          errorMessage = 'Invalid X_API_KEY.';
+      let errorMessage = rateLimitMessage(res) ?? 'Node is not responding.';
+      if (!rateLimitMessage(res)) {
+        try {
+          const errorBody = (await res.json()) as { error?: string };
+          if (errorBody?.error === 'invalid_api_key') {
+            errorMessage = 'Invalid X_API_KEY.';
+          }
+        } catch {
+          // ignore parse error, fall back to default message
         }
-      } catch {
-        // ignore parse error, fall back to default message
       }
       setNodeCheckError(errorMessage);
       setIsCheckingNode(false);

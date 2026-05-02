@@ -926,6 +926,17 @@ func (s *DashboardService) GetNodePeers(id string, offset int, limit int) (*Peer
 		}, nil
 	}
 
+	// Drop rows missing required identifiers — the UI keys/labels rows by these,
+	// and an empty value would render as a blank, click-into-nothing peer card.
+	filtered := raw.Data[:0]
+	for _, p := range raw.Data {
+		if strings.TrimSpace(p.PeerID) == "" || strings.TrimSpace(p.PublicKey) == "" {
+			continue
+		}
+		filtered = append(filtered, p)
+	}
+	raw.Data = filtered
+
 	return raw, nil
 }
 
