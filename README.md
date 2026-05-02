@@ -62,7 +62,7 @@ openssl rand -hex 32
 ```yaml
 services:
   wgkeeper-console:
-    image: ghcr.io/wgkeeper/console:1.0.0
+    image: ghcr.io/wgkeeper/console
     container_name: wgkeeper-console
     ports:
       - "8000:8000"
@@ -107,7 +107,7 @@ If you want WGKeeper Console behind Caddy with automatic HTTPS, use this setup:
 ```yaml
 services:
   wgkeeper-console:
-    image: ghcr.io/wgkeeper/console:1.0.0
+    image: ghcr.io/wgkeeper/console
     container_name: wgkeeper-console
     environment:
       PORT: 8000
