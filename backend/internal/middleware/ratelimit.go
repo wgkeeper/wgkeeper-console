@@ -60,26 +60,36 @@ func (rl *APIRateLimiter) cleanup() {
 	}
 }
 
-// allow returns false and increments the counter when the limit is exceeded.
-func (rl *APIRateLimiter) allow(ip string) bool {
+// allow returns whether the request is permitted. When denied, the second
+// return value is the seconds remaining until the IP's current fixed window
+// resets — used to populate a precise Retry-After header.
+func (rl *APIRateLimiter) allow(ip string) (bool, int) {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 	now := time.Now()
 	e, ok := rl.entries[ip]
 	if !ok || now.After(e.windowStart.Add(apiWindowDuration)) {
 		rl.entries[ip] = &apiEntry{count: 1, windowStart: now}
-		return true
+		return true, 0
 	}
 	e.count++
-	return e.count <= apiMaxRequests
+	if e.count <= apiMaxRequests {
+		return true, 0
+	}
+	secs := int(time.Until(e.windowStart.Add(apiWindowDuration)).Seconds())
+	if secs < 1 {
+		secs = 1
+	}
+	return false, secs
 }
 
 // APIRateLimit returns a Gin middleware that limits each IP to apiMaxRequests
 // per apiWindowDuration across all protected routes.
 func APIRateLimit(rl *APIRateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !rl.allow(c.ClientIP()) {
-			c.Header("Retry-After", strconv.Itoa(int(apiWindowDuration.Seconds())))
+		allowed, retryAfter := rl.allow(c.ClientIP())
+		if !allowed {
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
 			c.JSON(http.StatusTooManyRequests, gin.H{"ok": false, "error": "too_many_requests"})
 			c.Abort()
 			return
@@ -183,6 +193,7 @@ func LoginRateLimit(rl *LoginRateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
 		if secs := rl.blockedFor(ip); secs > 0 {
+			c.Header("Retry-After", strconv.Itoa(secs))
 			c.JSON(http.StatusTooManyRequests, gin.H{"ok": false, "error": "too_many_requests"})
 			c.Abort()
 			return

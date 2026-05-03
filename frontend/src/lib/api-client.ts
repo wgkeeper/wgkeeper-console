@@ -44,7 +44,11 @@ export function createApiFetch(onUnauthenticated: () => void, timeoutMs = REQUES
 
   const buildHeaders = (options: RequestInit): Headers => {
     const headers = new Headers(options.headers);
-    if (!headers.has('Content-Type') && options.body) {
+    // Only auto-set JSON for string bodies. For FormData/Blob/URLSearchParams
+    // the browser must set Content-Type itself so it can include the
+    // multipart boundary or correct mime — forcing application/json there
+    // would silently corrupt the request.
+    if (!headers.has('Content-Type') && typeof options.body === 'string') {
       headers.set('Content-Type', 'application/json');
     }
     return headers;

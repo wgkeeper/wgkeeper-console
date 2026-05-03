@@ -127,8 +127,16 @@ func main() {
 				// with API routes (e.g. /api)
 				r.Static("/assets", assetsPath)
 			}
-			// Serve the SPA entrypoint at /
-			r.StaticFile("/", indexPath)
+			// Serve the SPA entrypoint at /. Use a custom handler instead of
+			// StaticFile so we can set no-cache headers — the bundle's hashed
+			// asset filenames let /assets cache forever, but index.html must
+			// always be revalidated so a deploy doesn't leave clients pinned
+			// to a stale build that calls removed APIs.
+			serveIndex := func(c *gin.Context) {
+				c.Header("Cache-Control", "no-cache, must-revalidate")
+				c.File(indexPath)
+			}
+			r.GET("/", serveIndex)
 			robotsPath := filepath.Join(staticRoot, "robots.txt")
 			if _, err := os.Stat(robotsPath); err == nil {
 				r.StaticFile("/robots.txt", robotsPath)
@@ -153,7 +161,7 @@ func main() {
 					c.JSON(404, gin.H{"error": "not_found"})
 					return
 				}
-				c.File(indexPath)
+				serveIndex(c)
 			})
 		}
 	} else {

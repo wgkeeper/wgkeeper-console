@@ -176,15 +176,23 @@ function App() {
   };
 
   const handleLogout = async () => {
-    await apiFetch('/api/logout', { method: 'POST' });
-    setIsAuthed(false);
-    setNodes([]);
-    setUsername(null);
-    setLoginForm({ username: '', password: '' });
-    setPasswordForm({ currentPassword: '', newPassword: '' });
-    setPasswordError('');
-    setMustChangePassword(false);
-    void navigate('/login', { replace: true });
+    // Always clear local state, even if the server request fails — otherwise
+    // a network blip leaves the UI thinking we're still logged in with a
+    // cookie the backend may have already invalidated.
+    try {
+      await apiFetch('/api/logout', { method: 'POST' });
+    } catch {
+      // ignore — local cleanup below is what matters for the user
+    } finally {
+      setIsAuthed(false);
+      setNodes([]);
+      setUsername(null);
+      setLoginForm({ username: '', password: '' });
+      setPasswordForm({ currentPassword: '', newPassword: '' });
+      setPasswordError('');
+      setMustChangePassword(false);
+      void navigate('/login', { replace: true });
+    }
   };
 
   const handleChangePassword = async (event: React.FormEvent<HTMLFormElement>) => {

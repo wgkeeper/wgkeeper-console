@@ -49,6 +49,31 @@ describe('createApiFetch', () => {
       const [, init] = mockFetch.mock.calls[0]!;
       expect(new Headers(init?.headers).get('Content-Type')).toBeNull();
     });
+
+    it('does not set Content-Type for FormData bodies (browser must add the multipart boundary)', async () => {
+      mockFetch.mockResolvedValueOnce(ok({}));
+      const apiFetch = createApiFetch(vi.fn());
+
+      const fd = new FormData();
+      fd.append('file', new Blob(['x']), 'x.txt');
+      await apiFetch('/api/upload', { method: 'POST', body: fd });
+
+      const [, init] = mockFetch.mock.calls[0]!;
+      expect(new Headers(init?.headers).get('Content-Type')).toBeNull();
+    });
+
+    it('does not set Content-Type for Blob bodies', async () => {
+      mockFetch.mockResolvedValueOnce(ok({}));
+      const apiFetch = createApiFetch(vi.fn());
+
+      await apiFetch('/api/upload', {
+        method: 'POST',
+        body: new Blob(['x'], { type: 'application/octet-stream' }),
+      });
+
+      const [, init] = mockFetch.mock.calls[0]!;
+      expect(new Headers(init?.headers).get('Content-Type')).toBeNull();
+    });
   });
 
   describe('401 handling', () => {

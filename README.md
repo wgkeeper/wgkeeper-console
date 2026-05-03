@@ -115,6 +115,11 @@ services:
       SECRET_KEY: paste-generated-64-char-hex-key-here
       BOOTSTRAP_ADMIN_PASSWORD: change-me-now
       COOKIE_SECURE: "true"
+      # Trust X-Forwarded-For from the Caddy container (default Docker bridge
+      # range). Without this every request looks like it comes from Caddy and
+      # the per-IP rate limit treats all users as one — see "Behind a reverse
+      # proxy" in Configuration.
+      TRUSTED_PROXIES: 172.16.0.0/12
     volumes:
       - wgkeeper-console-data:/app/data
     restart: unless-stopped
@@ -195,6 +200,20 @@ Optional variables:
 |----------|---------|---------|
 | `DOCS` | `false` | Enables Swagger UI |
 | `DEBUG` | `false` | Enables debug logging |
+| `TRUSTED_PROXIES` | empty | Comma-separated list of proxy IPs/CIDRs whose `X-Forwarded-For` should be trusted. Only needed when running behind a reverse proxy — see below. |
+
+### Behind a reverse proxy
+
+By default the backend reads the client IP from the TCP connection (`RemoteAddr`) and ignores `X-Forwarded-For` from anyone — this is safe when WGKeeper Console is exposed directly.
+
+If you put a reverse proxy in front (Caddy, nginx, Traefik, a load balancer), you must tell the backend which proxy IPs to trust, otherwise every request will look like it came from the proxy and the per-IP rate limit will treat all of your users as a single client — one busy user can lock everyone out.
+
+| Setup | `TRUSTED_PROXIES` |
+|-------|-------------------|
+| Caddy/nginx on the same host (loopback) | `127.0.0.1,::1` |
+| Proxy in another container on the same Docker network | `172.16.0.0/12` (covers default bridge ranges) or your specific subnet |
+| External load balancer with a known public IP | the LB's address, e.g. `203.0.113.10` |
+| Direct exposure, no proxy | leave unset |
 
 ## API docs
 
