@@ -42,8 +42,8 @@ const Sidebar = ({ className, children }: React.HTMLAttributes<HTMLDivElement>) 
     <aside
       data-collapsed={isCollapsed}
       className={cn(
-        'group/sidebar sticky top-0 z-20 flex h-screen flex-col overflow-hidden border-r border-border bg-card transition-all duration-200',
-        isCollapsed ? 'w-20' : 'w-72',
+        'group/sidebar sticky top-0 z-20 flex h-screen flex-col overflow-hidden border-r border-border bg-surface transition-[width] duration-200 ease-out',
+        isCollapsed ? 'w-16' : 'w-64',
         className,
       )}
     >
@@ -70,7 +70,7 @@ const SidebarTrigger = ({ className, ...props }: React.ButtonHTMLAttributes<HTML
     <button
       type="button"
       className={cn(
-        'inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition hover:text-foreground',
+        'inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color] duration-150 outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
         className,
       )}
       onClick={() => setCollapsed(!isCollapsed)}
@@ -82,12 +82,12 @@ const SidebarTrigger = ({ className, ...props }: React.ButtonHTMLAttributes<HTML
 };
 
 const sidebarMenuButtonVariants = cva(
-  'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition hover:bg-muted/70',
+  'flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium outline-none transition-[color,background-color] duration-150 focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-4 [&_svg]:shrink-0',
   {
     variants: {
       isActive: {
-        true: 'bg-muted text-foreground shadow-xs',
-        false: 'text-muted-foreground',
+        true: 'bg-accent text-foreground',
+        false: 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
       },
     },
     defaultVariants: {

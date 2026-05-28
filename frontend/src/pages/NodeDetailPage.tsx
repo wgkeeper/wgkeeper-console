@@ -1,14 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import {
-  AlertCircle,
-  ChevronRight,
-  RefreshCw,
-  Server,
-  Trash2,
-  Clock,
-  TriangleAlert,
-} from 'lucide-react';
+import { AlertCircle, Clock, RefreshCw, Server, Trash2, TriangleAlert } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -25,6 +17,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
+import { NodeStatusBadge } from '@/components/nodes/NodeStatusBadge';
 import type { NodeItem, NodeStats } from '../types';
 import { NodeConfigTab } from '@/components/nodes/NodeConfigTab';
 import { NodePeersTab } from '@/components/nodes/NodePeersTab';
@@ -38,6 +31,15 @@ type Props = {
 };
 
 type TabKey = 'overview' | 'peers' | 'config';
+
+const Stat = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  <div className="flex flex-col gap-1">
+    <span className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+      {label}
+    </span>
+    <span className="font-mono text-sm">{children}</span>
+  </div>
+);
 
 export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
   const { id } = useParams<{ id: string }>();
@@ -124,11 +126,19 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
 
   if (!node) {
     return (
-      <div className="flex flex-col gap-4">
-        <p className="text-muted-foreground">Node not found.</p>
-        <Link to="/nodes" className="text-sm text-primary hover:underline">
-          ← Back to nodes
-        </Link>
+      <div className="flex flex-col items-center gap-4 py-16 text-center">
+        <div className="flex size-11 items-center justify-center rounded-lg border border-border bg-muted/50 text-muted-foreground">
+          <Server className="size-5" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <p className="text-sm font-medium text-foreground">Node not found</p>
+          <p className="text-sm text-muted-foreground">
+            It may have been removed from the console.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" asChild>
+          <Link to="/nodes">Back to nodes</Link>
+        </Button>
       </div>
     );
   }
@@ -140,68 +150,36 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
   const pct = possible > 0 ? (issued / possible) * 100 : 0;
   const pctDisplay = pct > 0 && pct < 1 ? pct.toFixed(1) : pct.toFixed(0);
 
-  const nodeAddress = node.address;
-  const hostPortLabel = nodeAddress;
   const createdAtLabel = formatDate(node.createdAt);
   const updatedAtLabel = formatDate(node.updatedAt);
 
   return (
     <div className="flex flex-col gap-6">
-      <nav className="flex items-center gap-1.5 text-sm text-muted-foreground">
-        <Link to="/nodes" className="transition-colors hover:text-foreground">
-          Nodes
-        </Link>
-        <ChevronRight className="size-3.5" />
-        <span className="truncate font-mono text-foreground" title={nodeAddress}>
-          {hostPortLabel}
-        </span>
-      </nav>
-
+      {/* Identity header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-start gap-4">
-          <div className="flex size-11 flex-shrink-0 items-center justify-center rounded-xl bg-muted">
-            <Server className="size-5 text-muted-foreground" />
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/50 text-muted-foreground">
+            <Server className="size-5" />
           </div>
-          <div className="flex flex-col gap-1.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge
-                variant="secondary"
-                className={`gap-1.5 ${
-                  node.status === 'online'
-                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                    : node.status === 'offline'
-                      ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
-                      : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                }`}
-              >
-                <span
-                  className={`size-1.5 rounded-full ${
-                    node.status === 'online'
-                      ? 'bg-emerald-500'
-                      : node.status === 'offline'
-                        ? 'bg-red-500'
-                        : 'bg-amber-500'
-                  }`}
-                />
-                {node.status}
-              </Badge>
+          <div className="flex min-w-0 flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h2 className="font-mono text-base font-medium text-foreground" title={node.address}>
+                {node.address}
+              </h2>
+              <NodeStatusBadge status={node.status} />
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
               {node.version != null && (
                 <Badge
-                  variant="outline"
-                  className={`font-mono text-xs ${
-                    node.isOutdated
-                      ? 'border-foreground/50 bg-foreground/[0.06] text-foreground shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.08)] dark:bg-foreground/[0.08]'
-                      : ''
-                  }`}
+                  variant={node.isOutdated ? 'warning' : 'secondary'}
+                  className="gap-1 font-mono text-[11px]"
                 >
-                  v{node.version}
+                  {node.isOutdated ? <TriangleAlert /> : null}v{node.version}
                 </Badge>
               )}
-              <Badge variant="secondary" className="font-mono text-xs uppercase">
+              <Badge variant="outline" className="font-mono text-[11px] uppercase">
                 {new URL(node.address).protocol.replace(':', '')}
               </Badge>
-            </div>
-            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Clock className="size-3" />
                 Created {createdAtLabel}
@@ -209,53 +187,49 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
               <span className="text-border">·</span>
               <span>Updated {updatedAtLabel}</span>
             </div>
-            <p className="font-mono text-xs text-foreground/60 select-all" title={node.id}>
+            <p className="font-mono text-xs text-muted-foreground select-all" title={node.id}>
               {node.id}
             </p>
             {node.isOutdated && node.latestVersion ? (
-              <p className="flex items-center gap-2 text-sm text-foreground">
-                <TriangleAlert className="size-4 text-amber-500" />
+              <p className="flex items-center gap-2 text-sm text-warning-foreground">
+                <TriangleAlert className="size-4 shrink-0" />
                 <span>v{node.latestVersion} available</span>
                 {node.latestVersionUrl ? (
-                  <>
-                    <span className="text-border"> · </span>
-                    <a
-                      href={node.latestVersionUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="underline underline-offset-4"
-                    >
-                      open release
-                    </a>
-                  </>
+                  <a
+                    href={node.latestVersionUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium underline underline-offset-4"
+                  >
+                    release notes
+                  </a>
                 ) : null}
               </p>
             ) : null}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            title="Refresh status"
-            disabled={isRefreshingStatus}
-            onClick={async () => {
-              setIsRefreshingStatus(true);
-              try {
-                await apiFetch('/api/nodes/refresh', { method: 'POST' });
-                await onReloadNodes();
-                setRefreshStatsTrigger((s) => s + 1);
-              } catch {
-                // best-effort
-              } finally {
-                setIsRefreshingStatus(false);
-              }
-            }}
-          >
-            <RefreshCw className={`size-4 ${isRefreshingStatus ? 'animate-spin' : ''}`} />
-          </Button>
-        </div>
+        <Button
+          variant="outline"
+          size="icon"
+          className="size-8"
+          title="Refresh status"
+          aria-label="Refresh status"
+          disabled={isRefreshingStatus}
+          onClick={async () => {
+            setIsRefreshingStatus(true);
+            try {
+              await apiFetch('/api/nodes/refresh', { method: 'POST' });
+              await onReloadNodes();
+              setRefreshStatsTrigger((s) => s + 1);
+            } catch {
+              // best-effort
+            } finally {
+              setIsRefreshingStatus(false);
+            }
+          }}
+        >
+          <RefreshCw className={`size-4 ${isRefreshingStatus ? 'animate-spin' : ''}`} />
+        </Button>
       </div>
 
       <AlertDialog
@@ -269,13 +243,13 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete node?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove the node from the console but will not change the remote server
-              configuration.
+              This removes the node from the console. The remote server configuration is not
+              changed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {deleteError && (
             <Alert variant="destructive">
-              <AlertCircle className="size-4" />
+              <AlertCircle />
               <AlertDescription>{deleteError}</AlertDescription>
             </Alert>
           )}
@@ -289,7 +263,7 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
                 void handleDeleteNode();
               }}
             >
-              {isDeleting ? 'Deleting…' : 'Delete'}
+              {isDeleting ? 'Deleting…' : 'Delete node'}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -319,19 +293,19 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
                     <Skeleton className="h-2 w-full rounded-full" />
                     <Skeleton className="h-3 w-16" />
                   </div>
-                  <div className="flex gap-4 border-t pt-4">
+                  <div className="flex gap-4 border-t border-border pt-4">
                     <Skeleton className="h-4 w-32" />
                     <Skeleton className="h-4 w-28" />
                     <Skeleton className="h-4 w-24" />
                   </div>
                 </div>
               ) : statsError ? (
-                <p className="text-sm text-destructive">{statsError}</p>
+                <p className="text-sm text-muted-foreground">{statsError}</p>
               ) : stats ? (
                 <>
                   <div className="flex flex-col gap-1.5">
                     <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
-                      <span className="font-medium text-muted-foreground">Peer capacity</span>
+                      <span className="font-medium">Peer capacity</span>
                       <span className="tabular-nums">
                         <span className="font-medium">{active}</span>
                         <span className="text-muted-foreground"> active</span>
@@ -348,7 +322,7 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
                     </div>
                     <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                       <div
-                        className="h-full rounded-full bg-primary transition-all"
+                        className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
                         style={{ width: `${pct}%` }}
                       />
                     </div>
@@ -359,57 +333,30 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
                     )}
                   </div>
                   <Separator />
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-3">
                     {(stats.wireguard?.subnets?.length ?? 0) > 0 && (
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-[10px] tracking-wide text-muted-foreground uppercase">
-                          Subnet{(stats.wireguard?.subnets?.length ?? 0) > 1 ? 's' : ''}
-                        </span>
-                        <span className="font-mono text-sm">
-                          {stats.wireguard?.subnets?.join(', ')}
-                        </span>
-                      </div>
+                      <Stat
+                        label={`Subnet${(stats.wireguard?.subnets?.length ?? 0) > 1 ? 's' : ''}`}
+                      >
+                        {stats.wireguard?.subnets?.join(', ')}
+                      </Stat>
                     )}
                     {(stats.wireguard?.serverIps?.length ?? 0) > 0 && (
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-[10px] tracking-wide text-muted-foreground uppercase">
-                          Server IPs
-                        </span>
-                        <span className="font-mono text-sm">
-                          {stats.wireguard?.serverIps?.join(', ')}
-                        </span>
-                      </div>
+                      <Stat label="Server IPs">{stats.wireguard?.serverIps?.join(', ')}</Stat>
                     )}
                     {(stats.wireguard?.addressFamilies?.length ?? 0) > 0 && (
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-[10px] tracking-wide text-muted-foreground uppercase">
-                          Families
-                        </span>
-                        <span className="font-mono text-sm">
-                          {stats.wireguard?.addressFamilies?.join(', ')}
-                        </span>
-                      </div>
+                      <Stat label="Families">{stats.wireguard?.addressFamilies?.join(', ')}</Stat>
                     )}
                     {stats.wireguard?.listenPort != null && (
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-[10px] tracking-wide text-muted-foreground uppercase">
-                          WireGuard port
-                        </span>
-                        <span className="font-mono text-sm">{stats.wireguard.listenPort}</span>
-                      </div>
+                      <Stat label="WireGuard port">{stats.wireguard.listenPort}</Stat>
                     )}
                     {stats.service?.name != null && (
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-[10px] tracking-wide text-muted-foreground uppercase">
-                          Service
-                        </span>
-                        <span className="font-mono text-sm">
-                          {stats.service.name}
-                          {stats.service.version != null && (
-                            <span className="text-muted-foreground"> v{stats.service.version}</span>
-                          )}
-                        </span>
-                      </div>
+                      <Stat label="Service">
+                        {stats.service.name}
+                        {stats.service.version != null && (
+                          <span className="text-muted-foreground"> v{stats.service.version}</span>
+                        )}
+                      </Stat>
                     )}
                   </div>
                 </>
@@ -417,7 +364,7 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
             </CardContent>
           </Card>
 
-          <Card className="border-destructive/40">
+          <Card className="border-destructive/30">
             <CardHeader>
               <CardTitle className="text-destructive">Danger zone</CardTitle>
               <CardDescription>
@@ -428,7 +375,6 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
               <Button
                 variant="destructive"
                 size="sm"
-                className="gap-1.5"
                 disabled={isDeleting}
                 onClick={() => setDeleteDialogOpen(true)}
               >

@@ -1,6 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, CheckCircle2, ExternalLink, RefreshCw, TriangleAlert } from 'lucide-react';
+import {
+  AlertCircle,
+  CheckCircle2,
+  ChevronRight,
+  RefreshCw,
+  Server,
+  TriangleAlert,
+} from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -8,6 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { NodeStatusBadge } from '@/components/nodes/NodeStatusBadge';
 import {
   Pagination,
   PaginationContent,
@@ -172,56 +180,65 @@ export const NodesPage = ({
     setIsCheckingNode(false);
   };
 
+  const handleRefreshNodes = async () => {
+    setIsRefreshingNodes(true);
+    try {
+      await apiFetch('/api/nodes/refresh', { method: 'POST' });
+    } catch {
+      // ignore error, still try reload list
+    }
+    await onReloadNodes(1);
+    setIsRefreshingNodes(false);
+  };
+
+  const total = nodes.length;
+  const pct = (count: number) => (total > 0 ? `${(count / total) * 100}%` : '0%');
+
   return (
     <div className="flex flex-col gap-6">
+      {/* Add node */}
       <Card>
-        <CardHeader className="flex flex-col gap-1">
+        <CardHeader>
           <CardTitle>Add node</CardTitle>
-          <CardDescription>Connect a WireGuard node via its API.</CardDescription>
+          <CardDescription>Connect a WireGuard node through its API.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form className="grid gap-4 md:grid-cols-2" onSubmit={handleCreateNode}>
-            <div className="flex flex-col gap-1.5">
-              <Label
-                htmlFor="address"
-                className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
-              >
-                Node address
-              </Label>
-              <Input
-                id="address"
-                name="address"
-                placeholder="https://10.0.0.1:51821"
-                value={nodeForm.address}
-                onChange={(event) =>
-                  updateNodeForm((prev) => ({ ...prev, address: event.target.value }))
-                }
-                required
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label
-                htmlFor="apiKey"
-                className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
-              >
-                X_API_KEY
-              </Label>
-              <Input
-                id="apiKey"
-                name="apiKey"
-                type="password"
-                autoComplete="off"
-                placeholder="key-123"
-                value={nodeForm.apiKey}
-                onChange={(event) =>
-                  updateNodeForm((prev) => ({ ...prev, apiKey: event.target.value }))
-                }
-                required
-              />
+          <form className="flex flex-col gap-4" onSubmit={handleCreateNode}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="address">Node address</Label>
+                <Input
+                  id="address"
+                  name="address"
+                  className="font-mono"
+                  placeholder="https://10.0.0.1:51821"
+                  value={nodeForm.address}
+                  onChange={(event) =>
+                    updateNodeForm((prev) => ({ ...prev, address: event.target.value }))
+                  }
+                  required
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="apiKey">API key (X_API_KEY)</Label>
+                <Input
+                  id="apiKey"
+                  name="apiKey"
+                  type="password"
+                  autoComplete="off"
+                  className="font-mono"
+                  placeholder="••••••••••••"
+                  value={nodeForm.apiKey}
+                  onChange={(event) =>
+                    updateNodeForm((prev) => ({ ...prev, apiKey: event.target.value }))
+                  }
+                  required
+                />
+              </div>
             </div>
             {nodeCheck?.ok ? (
-              <Alert className="border-emerald-200 bg-emerald-50 text-emerald-800 md:col-span-2 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
-                <CheckCircle2 className="size-4 !text-emerald-600 dark:!text-emerald-400" />
+              <Alert variant="success">
+                <CheckCircle2 />
                 <AlertDescription>
                   Node detected:{' '}
                   <span className="font-medium">{nodeCheck.serviceName ?? nodeCheck.address}</span>
@@ -230,44 +247,45 @@ export const NodesPage = ({
               </Alert>
             ) : null}
             {nodeCheckError ? (
-              <Alert variant="destructive" className="md:col-span-2">
-                <AlertCircle className="size-4" />
+              <Alert variant="destructive">
+                <AlertCircle />
                 <AlertDescription>{nodeCheckError}</AlertDescription>
               </Alert>
             ) : null}
-            <div className="flex flex-wrap justify-end gap-2 md:col-span-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button
                 type="button"
                 variant="outline"
                 onClick={handleCheckNode}
                 disabled={isCheckingNode}
               >
-                {isCheckingNode ? 'Checking...' : 'Check node'}
+                {isCheckingNode ? 'Checking…' : 'Check node'}
               </Button>
               <Button type="submit" disabled={!nodeCheck?.ok || isCreatingNode}>
-                {isCreatingNode ? 'Saving...' : 'Save node'}
+                {isCreatingNode ? 'Saving…' : 'Save node'}
               </Button>
             </div>
           </form>
         </CardContent>
       </Card>
 
+      {/* Nodes */}
       <Card>
-        <CardHeader className="flex-row items-center justify-between space-y-0">
-          <div>
-            <CardTitle>Nodes list</CardTitle>
+        <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
+          <div className="flex flex-col gap-1">
+            <CardTitle>Nodes</CardTitle>
             <CardDescription>
               {latestRelease ? (
                 <>
-                  Latest wgkeeper-node: v{latestRelease.version}
+                  Latest wgkeeper-node v{latestRelease.version}
                   {latestRelease.url ? (
                     <>
-                      {' '}
+                      {' · '}
                       <a
                         href={latestRelease.url}
                         target="_blank"
                         rel="noreferrer"
-                        className="underline underline-offset-4"
+                        className="font-medium text-foreground underline-offset-4 hover:underline"
                       >
                         release notes
                       </a>
@@ -275,178 +293,147 @@ export const NodesPage = ({
                   ) : null}
                 </>
               ) : (
-                'Last updated today'
+                'Connected WireGuard nodes'
               )}
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant="secondary">{nodesTotal} total</Badge>
+            <Badge variant="secondary" className="tabular-nums">
+              {nodesTotal}
+            </Badge>
             <Button
               variant="outline"
               size="icon"
+              className="size-8"
               disabled={isRefreshingNodes}
               title="Refresh"
-              onClick={async () => {
-                setIsRefreshingNodes(true);
-                try {
-                  await apiFetch('/api/nodes/refresh', { method: 'POST' });
-                } catch {
-                  // ignore error, still try reload list
-                }
-                await onReloadNodes(1);
-                setIsRefreshingNodes(false);
-              }}
+              aria-label="Refresh nodes"
+              onClick={handleRefreshNodes}
             >
               <RefreshCw className={`size-4 ${isRefreshingNodes ? 'animate-spin' : ''}`} />
             </Button>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           {nodesError ? (
-            <Alert variant="destructive">
-              <AlertCircle className="size-4" />
-              <AlertDescription>{nodesError}</AlertDescription>
-            </Alert>
+            <div className="px-6 pb-6">
+              <Alert variant="destructive">
+                <AlertCircle />
+                <AlertDescription>{nodesError}</AlertDescription>
+              </Alert>
+            </div>
           ) : nodesLoading ? (
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <Card key={i} className="border-border">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <Skeleton className="size-2.5 rounded-full" />
-                        <Skeleton className="h-4 w-32" />
-                      </div>
-                      <Skeleton className="h-3 w-20" />
-                    </div>
-                  </CardHeader>
-                  <CardContent className="flex items-end justify-between gap-4 pt-0">
-                    <div className="flex flex-col gap-1.5">
-                      <Skeleton className="h-2.5 w-8" />
-                      <Skeleton className="h-4 w-56" />
-                    </div>
-                    <Skeleton className="h-8 w-16 rounded-md" />
-                  </CardContent>
-                </Card>
+            <div className="divide-y divide-border border-t border-border">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-4 px-6 py-[0.9375rem]">
+                  <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                    <Skeleton className="h-4 w-48" />
+                    <Skeleton className="h-3 w-64" />
+                  </div>
+                  <Skeleton className="h-5 w-16 rounded-md" />
+                  <Skeleton className="size-4 rounded-sm" />
+                </div>
               ))}
             </div>
           ) : nodes.length ? (
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+            <>
+              {/* Status summary */}
+              <div className="flex flex-col gap-2 border-t border-border px-6 py-4">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   <span>
-                    Online:{' '}
-                    <span className="font-medium text-emerald-600">{statusSummary.online}</span>
+                    Online{' '}
+                    <span className="font-medium text-success-foreground tabular-nums">
+                      {statusSummary.online}
+                    </span>
                   </span>
                   <span>
-                    Offline:{' '}
-                    <span className="font-medium text-red-600">{statusSummary.offline}</span>
+                    Offline{' '}
+                    <span className="font-medium text-destructive tabular-nums">
+                      {statusSummary.offline}
+                    </span>
                   </span>
                   {statusSummary.other > 0 ? (
                     <span>
-                      Other:{' '}
-                      <span className="font-medium text-amber-600">{statusSummary.other}</span>
+                      Other{' '}
+                      <span className="font-medium text-warning-foreground tabular-nums">
+                        {statusSummary.other}
+                      </span>
                     </span>
                   ) : null}
                   {statusSummary.outdated > 0 ? (
                     <span>
-                      Updates:{' '}
-                      <span className="font-medium text-amber-600">{statusSummary.outdated}</span>
+                      Updates{' '}
+                      <span className="font-medium text-warning-foreground tabular-nums">
+                        {statusSummary.outdated}
+                      </span>
                     </span>
                   ) : null}
                 </div>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                  <div className="flex h-full w-full">
-                    {statusSummary.online > 0 ? (
-                      <div
-                        className="h-full bg-emerald-500"
-                        style={{ width: `${(statusSummary.online / nodes.length) * 100}%` }}
-                      />
-                    ) : null}
-                    {statusSummary.offline > 0 ? (
-                      <div
-                        className="h-full bg-red-500"
-                        style={{ width: `${(statusSummary.offline / nodes.length) * 100}%` }}
-                      />
-                    ) : null}
-                    {statusSummary.other > 0 ? (
-                      <div
-                        className="h-full bg-amber-400"
-                        style={{ width: `${(statusSummary.other / nodes.length) * 100}%` }}
-                      />
-                    ) : null}
-                  </div>
+                <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                  {statusSummary.online > 0 ? (
+                    <div
+                      className="h-full bg-success"
+                      style={{ width: pct(statusSummary.online) }}
+                    />
+                  ) : null}
+                  {statusSummary.offline > 0 ? (
+                    <div
+                      className="h-full bg-destructive"
+                      style={{ width: pct(statusSummary.offline) }}
+                    />
+                  ) : null}
+                  {statusSummary.other > 0 ? (
+                    <div
+                      className="h-full bg-warning"
+                      style={{ width: pct(statusSummary.other) }}
+                    />
+                  ) : null}
                 </div>
               </div>
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {nodes.map((node) => {
-                  const statusColor =
-                    node.status === 'online'
-                      ? 'bg-emerald-500'
-                      : node.status === 'offline'
-                        ? 'bg-red-500'
-                        : 'bg-amber-500';
 
-                  const hostPortLabel = node.address;
-
-                  return (
-                    <Card key={node.id} className="border-border transition-shadow hover:shadow-md">
-                      <CardContent className="flex items-center gap-3 px-4 py-4">
+              {/* List */}
+              <div className="divide-y divide-border border-t border-border">
+                {nodes.map((node) => (
+                  <Link
+                    key={node.id}
+                    to={`/nodes/${node.id}`}
+                    className="group flex items-center gap-4 px-6 py-[0.9375rem] transition-colors hover:bg-accent/50"
+                  >
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <div className="flex items-center gap-2">
                         <span
-                          className={`inline-block size-2 flex-shrink-0 rounded-full ${statusColor}`}
-                        />
-                        <div className="flex min-w-0 flex-1 flex-col gap-1">
-                          <span
-                            className="truncate font-mono text-sm font-medium"
-                            title={hostPortLabel}
+                          className="truncate font-mono text-sm font-medium"
+                          title={node.address}
+                        >
+                          {node.address}
+                        </span>
+                        {node.version ? (
+                          <Badge
+                            variant={node.isOutdated ? 'warning' : 'secondary'}
+                            className="shrink-0 gap-1 font-mono text-[11px]"
                           >
-                            {hostPortLabel}
-                          </span>
-                          <div className="flex items-center gap-1.5">
-                            {node.version ? (
-                              <Badge
-                                variant={node.isOutdated ? 'outline' : 'secondary'}
-                                className={`flex-shrink-0 font-mono text-[10px] ${
-                                  node.isOutdated
-                                    ? 'gap-1.5 border-foreground/50 bg-foreground/[0.06] text-foreground shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.08)] dark:bg-foreground/[0.08]'
-                                    : ''
-                                }`}
-                              >
-                                {node.isOutdated ? (
-                                  <TriangleAlert className="size-3 text-amber-500" />
-                                ) : null}
-                                v{node.version}
-                              </Badge>
-                            ) : null}
-                            <span
-                              className="truncate font-mono text-[11px] text-muted-foreground"
-                              title={node.id}
-                            >
-                              {node.id}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            asChild
-                            className="size-8 flex-shrink-0"
-                          >
-                            <Link to={`/nodes/${node.id}`} title="Open">
-                              <ExternalLink className="size-3.5" />
-                            </Link>
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
+                            {node.isOutdated ? <TriangleAlert /> : null}v{node.version}
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <span
+                        className="truncate font-mono text-xs text-muted-foreground"
+                        title={node.id}
+                      >
+                        {node.id}
+                      </span>
+                    </div>
+                    <NodeStatusBadge status={node.status} className="shrink-0" />
+                    <ChevronRight className="size-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground" />
+                  </Link>
+                ))}
               </div>
+
+              {/* Pagination */}
               {nodesTotalPages > 1 ? (
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">{pageLabel}</span>
-                  <Pagination className="flex-1 justify-end">
+                <div className="flex items-center justify-between gap-4 border-t border-border px-6 py-3">
+                  <span className="text-xs text-muted-foreground tabular-nums">{pageLabel}</span>
+                  <Pagination className="mx-0 w-auto justify-end">
                     <PaginationContent>
                       <PaginationItem>
                         <PaginationPrevious
@@ -510,10 +497,18 @@ export const NodesPage = ({
                   </Pagination>
                 </div>
               ) : null}
-            </div>
+            </>
           ) : (
-            <div className="rounded-lg border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
-              Nodes have not been added yet.
+            <div className="flex flex-col items-center gap-3 border-t border-border px-6 py-14 text-center">
+              <div className="flex size-11 items-center justify-center rounded-lg border border-border bg-muted/50 text-muted-foreground">
+                <Server className="size-5" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <p className="text-sm font-medium text-foreground">No nodes yet</p>
+                <p className="max-w-xs text-sm text-muted-foreground">
+                  Add a WireGuard node above to start managing peers and issuing configs.
+                </p>
+              </div>
             </div>
           )}
         </CardContent>

@@ -1,7 +1,7 @@
-import { LogOut, Moon, Server, Sun, User } from 'lucide-react';
-import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { ChevronRight, LogOut, Moon, Server, Sun, User } from 'lucide-react';
+import { Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Suspense, lazy, useEffect } from 'react';
-import { Switch } from '@/components/ui/switch';
+import { Button } from '@/components/ui/button';
 import {
   Sidebar,
   SidebarContent,
@@ -60,9 +60,17 @@ export const AppShell = ({
   const location = useLocation();
   const pathname = location.pathname;
 
+  const detailMatch = /^\/nodes\/([^/]+)/.exec(pathname);
+  const detailNode = detailMatch ? nodes.find((n) => n.id === detailMatch[1]) : undefined;
+
   const pageMeta = (() => {
     if (pathname.startsWith('/profile'))
       return { title: 'Profile', description: 'Manage your console account.' };
+    if (detailMatch)
+      return {
+        title: detailNode ? detailNode.address : 'Node',
+        description: 'Node details, peers, and config.',
+      };
     return { title: 'Nodes', description: 'Manage your WireGuard nodes.' };
   })();
 
@@ -94,27 +102,34 @@ export const AppShell = ({
           </SidebarFooter>
         </Sidebar>
         <SidebarInset>
-          <main className="flex-1 bg-muted/20">
-            <div className="sticky top-0 z-10 border-b border-border/60 bg-background/95 backdrop-blur">
-              <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-8">
-                <div className="flex flex-col gap-0.5">
-                  <h1 className="text-2xl font-semibold">{pageMeta.title}</h1>
-                  <p className="text-sm text-muted-foreground">{pageMeta.description}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Sun
-                    className={`size-4 ${theme === 'light' ? 'text-foreground' : 'text-muted-foreground'}`}
-                  />
-                  <Switch
-                    id="theme-toggle"
-                    checked={theme === 'dark'}
-                    onCheckedChange={onThemeToggle}
-                    aria-label="Toggle theme"
-                  />
-                  <Moon
-                    className={`size-4 ${theme === 'dark' ? 'text-foreground' : 'text-muted-foreground'}`}
-                  />
-                </div>
+          <main className="flex-1 bg-background">
+            <div className="sticky top-0 z-10 border-b border-border bg-background/80 backdrop-blur-md">
+              <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-4 px-6">
+                {detailMatch ? (
+                  <nav className="flex min-w-0 items-center gap-1.5 text-sm">
+                    <Link
+                      to="/nodes"
+                      className="text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      Nodes
+                    </Link>
+                    <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/60" />
+                    <span
+                      className="truncate font-mono font-medium text-foreground"
+                      title={pageMeta.title}
+                    >
+                      {pageMeta.title}
+                    </span>
+                  </nav>
+                ) : (
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <h1 className="truncate text-lg font-semibold tracking-tight">
+                      {pageMeta.title}
+                    </h1>
+                    <p className="truncate text-sm text-muted-foreground">{pageMeta.description}</p>
+                  </div>
+                )}
+                <ThemeToggle theme={theme} onThemeToggle={onThemeToggle} />
               </div>
             </div>
             <div className="mx-auto w-full max-w-6xl space-y-8 px-6 py-8">
@@ -125,8 +140,8 @@ export const AppShell = ({
                       <Skeleton className="h-7 w-36" />
                       <Skeleton className="h-4 w-72" />
                     </div>
-                    <Skeleton className="h-[110px] w-full rounded-xl" />
-                    <Skeleton className="h-[320px] w-full rounded-xl" />
+                    <Skeleton className="h-[110px] w-full rounded-lg" />
+                    <Skeleton className="h-[320px] w-full rounded-lg" />
                   </div>
                 }
               >
@@ -182,6 +197,25 @@ export const AppShell = ({
     </SidebarProvider>
   );
 };
+
+const ThemeToggle = ({
+  theme,
+  onThemeToggle,
+}: {
+  theme: 'light' | 'dark';
+  onThemeToggle: (checked: boolean) => void;
+}) => (
+  <Button
+    variant="ghost"
+    size="icon"
+    className="shrink-0 text-muted-foreground hover:text-foreground"
+    aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+    title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+    onClick={() => onThemeToggle(theme !== 'dark')}
+  >
+    {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+  </Button>
+);
 
 const SidebarHeaderContent = () => {
   const { isCollapsed } = useSidebar();

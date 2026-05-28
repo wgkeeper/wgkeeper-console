@@ -246,30 +246,26 @@ function App() {
   if (isLoading) {
     return (
       <div className="flex min-h-screen bg-background">
-        <div className="hidden w-64 flex-shrink-0 flex-col gap-4 border-r border-border p-4 md:flex">
-          <div className="flex items-center gap-3 p-2">
-            <Skeleton className="size-10 rounded-lg" />
-            <div className="flex flex-col gap-1.5">
-              <Skeleton className="h-4 w-28" />
-              <Skeleton className="h-3 w-20" />
-            </div>
+        <div className="hidden w-64 flex-shrink-0 flex-col gap-3 border-r border-border bg-surface p-4 md:flex">
+          <div className="flex flex-col gap-1.5 px-1 py-1.5">
+            <Skeleton className="h-6 w-28" />
+            <Skeleton className="h-2.5 w-16" />
           </div>
-          <div className="flex flex-col gap-2 pt-4">
-            <Skeleton className="h-8 w-full rounded-md" />
-            <Skeleton className="h-8 w-full rounded-md" />
+          <div className="flex flex-col gap-1.5 pt-3">
+            <Skeleton className="h-9 w-full rounded-md" />
+            <Skeleton className="h-9 w-full rounded-md" />
           </div>
         </div>
         <div className="flex flex-1 flex-col">
-          <div className="border-b border-border px-6 py-8">
-            <div className="mx-auto flex max-w-6xl flex-col gap-2">
-              <Skeleton className="h-3 w-32" />
-              <Skeleton className="h-7 w-24" />
-              <Skeleton className="h-4 w-80" />
+          <div className="flex h-16 items-center border-b border-border px-6">
+            <div className="mx-auto flex w-full max-w-6xl flex-col gap-1.5">
+              <Skeleton className="h-5 w-28" />
+              <Skeleton className="h-3.5 w-64" />
             </div>
           </div>
           <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-8">
-            <Skeleton className="h-[100px] w-full rounded-xl" />
-            <Skeleton className="h-[280px] w-full rounded-xl" />
+            <Skeleton className="h-28 w-full rounded-lg" />
+            <Skeleton className="h-72 w-full rounded-lg" />
           </div>
         </div>
       </div>

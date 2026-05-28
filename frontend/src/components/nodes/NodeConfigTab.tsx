@@ -220,10 +220,7 @@ export const NodeConfigTab = ({
         >
           {/* Peer ID */}
           <div className="flex flex-col gap-1.5">
-            <Label
-              htmlFor="config-peer-id"
-              className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
-            >
+            <Label htmlFor="config-peer-id" className="text-sm font-medium">
               Peer ID (UUID v4)
             </Label>
             <div className="flex gap-2">
@@ -249,9 +246,7 @@ export const NodeConfigTab = ({
 
           {/* Expiration */}
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Expires (optional)
-            </Label>
+            <Label className="text-sm font-medium">Expires (optional)</Label>
             <div className="flex gap-2">
               <Input
                 id="config-expires-at"
@@ -282,9 +277,7 @@ export const NodeConfigTab = ({
             </div>
           ) : renderedFamilies.length > 1 ? (
             <div className="flex flex-col gap-1.5">
-              <Label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                Address families
-              </Label>
+              <Label className="text-sm font-medium">Address families</Label>
               <div className="flex gap-5">
                 {renderedFamilies.map((family) => {
                   const checked = configAddressFamilies.includes(family);
@@ -345,9 +338,7 @@ export const NodeConfigTab = ({
           ) : (
             <div className="flex flex-col gap-1.5">
               <div className="flex items-baseline justify-between">
-                <Label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                  DNS
-                </Label>
+                <Label className="text-sm font-medium">DNS</Label>
                 <span className="text-xs text-muted-foreground">
                   Cloudflare pre-filled · edit or clear
                 </span>
@@ -400,19 +391,19 @@ export const NodeConfigTab = ({
           )}
 
           {configNotice && (
-            <Alert className="border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
-              <CheckCircle2 className="size-4 !text-emerald-600 dark:!text-emerald-400" />
+            <Alert variant="success">
+              <CheckCircle2 />
               <AlertDescription>{configNotice}</AlertDescription>
             </Alert>
           )}
           {configError && (
             <Alert variant="destructive">
-              <AlertCircle className="size-4" />
+              <AlertCircle />
               <AlertDescription>{configError}</AlertDescription>
             </Alert>
           )}
           {configText && (
-            <pre className="max-h-64 overflow-auto rounded-lg border bg-muted/30 px-4 py-3 font-mono text-xs leading-relaxed">
+            <pre className="max-h-64 overflow-auto rounded-md border border-border bg-muted/50 px-4 py-3 font-mono text-xs leading-relaxed">
               {renderConfig(configText)}
             </pre>
           )}

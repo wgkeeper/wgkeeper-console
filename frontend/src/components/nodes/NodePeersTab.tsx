@@ -33,6 +33,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 import { renderConfig } from '@/lib/config-utils';
 import { fetchErrorMessage, rateLimitMessage } from '@/lib/api-client';
 import { formatBytes, formatDate, formatExpires, truncate, PAGE_SIZES } from '@/lib/peer-utils';
@@ -45,6 +46,15 @@ type Props = {
   /** When this value changes, peers list is refetched (e.g. after config generated) */
   refreshTrigger?: number;
 };
+
+const DrawerField = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  <div className="flex flex-col gap-1 px-5 py-3">
+    <p className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+      {label}
+    </p>
+    {children}
+  </div>
+);
 
 export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
   const [offset, setOffset] = useState(0);
@@ -160,7 +170,10 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
 
   return (
     <div
-      className={`flex flex-col gap-4 transition-[margin] duration-200 ${isDetailsOpen ? 'mr-[24rem]' : ''}`}
+      className={cn(
+        'flex flex-col gap-4 transition-[margin] duration-200 ease-out',
+        isDetailsOpen && 'mr-[24rem]',
+      )}
     >
       <div className="flex flex-wrap items-center justify-between gap-4">
         <span className="flex items-center gap-1.5 text-sm font-medium">
@@ -179,13 +192,14 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
             size="icon"
             className="size-8"
             title={peersLoading ? 'Loading…' : 'Refresh'}
+            aria-label="Refresh peers"
             onClick={() => void loadPeers()}
             disabled={peersLoading}
           >
             <RefreshCw className={`size-4 ${peersLoading ? 'animate-spin' : ''}`} />
           </Button>
           <select
-            className="h-8 rounded-md border border-input bg-background px-2 text-sm text-muted-foreground"
+            className="h-8 rounded-md border border-input bg-background px-2 text-sm text-muted-foreground transition-[color,border-color,box-shadow] duration-150 outline-none hover:border-ring/40 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             value={limit}
             title="Rows per page"
             onChange={(e) => {
@@ -204,6 +218,7 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
               variant="ghost"
               size="icon"
               className="size-8"
+              aria-label="Previous page"
               disabled={!hasPrev}
               onClick={() => setOffset(peersData?.meta.prevOffset ?? Math.max(0, offset - limit))}
             >
@@ -216,6 +231,7 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
               variant="ghost"
               size="icon"
               className="size-8"
+              aria-label="Next page"
               disabled={!hasNext}
               onClick={() => setOffset(peersData?.meta.nextOffset ?? offset + limit)}
             >
@@ -227,32 +243,32 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
 
       {peersError && (
         <Alert variant="destructive">
-          <AlertCircle className="size-4" />
+          <AlertCircle />
           <AlertDescription>{peersError}</AlertDescription>
         </Alert>
       )}
 
-      <div className="overflow-x-auto overflow-y-hidden rounded-lg border shadow-xs">
+      <div className="overflow-x-auto overflow-y-hidden rounded-lg border border-border">
         <Table className="min-w-[800px]">
           <TableHeader>
-            <TableRow className="bg-muted/40 hover:bg-muted/40">
-              <TableHead className="w-[160px] font-semibold">Peer ID</TableHead>
-              <TableHead className="font-semibold">Allowed IPs</TableHead>
-              <TableHead className="font-semibold">Public key</TableHead>
-              <TableHead className="w-[100px] font-semibold">Status</TableHead>
-              <TableHead className="font-semibold whitespace-nowrap">Last handshake</TableHead>
-              <TableHead className="font-semibold">
+            <TableRow className="border-border bg-surface hover:bg-surface">
+              <TableHead className="w-[160px]">Peer ID</TableHead>
+              <TableHead>Allowed IPs</TableHead>
+              <TableHead>Public key</TableHead>
+              <TableHead className="w-[100px]">Status</TableHead>
+              <TableHead className="whitespace-nowrap">Last handshake</TableHead>
+              <TableHead>
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1 text-sm font-semibold hover:text-foreground"
+                  className="inline-flex items-center gap-1 text-xs font-medium transition-colors hover:text-foreground"
                   onClick={() => setSortDirection((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
                 >
                   <span>Created</span>
                   <ArrowUpDown className="size-3.5" />
                 </button>
               </TableHead>
-              <TableHead className="font-semibold">Expires</TableHead>
-              <TableHead className="w-[100px] text-right font-semibold">Actions</TableHead>
+              <TableHead>Expires</TableHead>
+              <TableHead className="w-[100px] text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -269,7 +285,7 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
                     <Skeleton className="h-4 w-[110px]" />
                   </TableCell>
                   <TableCell>
-                    <Skeleton className="h-5 w-16 rounded-full" />
+                    <Skeleton className="h-5 w-16 rounded-md" />
                   </TableCell>
                   <TableCell>
                     <Skeleton className="h-4 w-28" />
@@ -289,38 +305,41 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
                 </TableRow>
               ))
             ) : sortedPeers.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
-                  No peers on this node
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={8} className="h-28 text-center">
+                  <div className="flex flex-col items-center gap-1.5 text-muted-foreground">
+                    <Users className="size-5" />
+                    <span className="text-sm">No peers on this node yet</span>
+                  </div>
                 </TableCell>
               </TableRow>
             ) : (
               sortedPeers.map((peer) => (
                 <TableRow
                   key={peer.peerId}
-                  className={`transition-colors ${
-                    detailPeerId === peer.peerId
-                      ? 'border-l-4 border-l-primary bg-primary/5'
-                      : 'hover:bg-muted/30'
-                  }`}
+                  data-selected={detailPeerId === peer.peerId}
+                  className="border-border transition-colors data-[selected=false]:hover:bg-accent/40 data-[selected=true]:bg-accent"
                 >
-                  <TableCell className="font-mono text-xs" title={peer.peerId}>
+                  <TableCell className="font-mono text-xs whitespace-nowrap" title={peer.peerId}>
                     {truncate(peer.peerId, 22)}
                   </TableCell>
-                  <TableCell className="font-mono text-sm" title={peer.allowedIPs?.join(', ')}>
+                  <TableCell
+                    className="font-mono text-sm whitespace-nowrap"
+                    title={peer.allowedIPs?.join(', ')}
+                  >
                     {peer.allowedIPs?.join(', ') ?? '—'}
                   </TableCell>
                   <TableCell
-                    className="max-w-[140px] truncate font-mono text-xs"
+                    className="max-w-[140px] truncate font-mono text-xs text-muted-foreground"
                     title={peer.publicKey}
                   >
                     {truncate(peer.publicKey, 24)}
                   </TableCell>
                   <TableCell>
-                    <Badge
-                      variant={peer.active ? 'default' : 'secondary'}
-                      className={peer.active ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
-                    >
+                    <Badge variant={peer.active ? 'success' : 'secondary'}>
+                      {peer.active ? (
+                        <span className="size-1.5 rounded-full bg-success" aria-hidden />
+                      ) : null}
                       {peer.active ? 'Active' : 'Inactive'}
                     </Badge>
                   </TableCell>
@@ -340,6 +359,7 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
                         size="icon"
                         className="size-8"
                         title={detailPeerId === peer.peerId ? 'Hide details' : 'View details'}
+                        aria-label={detailPeerId === peer.peerId ? 'Hide details' : 'View details'}
                         onClick={() =>
                           setDetailPeerId(detailPeerId === peer.peerId ? null : peer.peerId)
                         }
@@ -353,8 +373,9 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        className="size-8 text-muted-foreground hover:bg-destructive-muted hover:text-destructive"
                         title="Delete peer"
+                        aria-label="Delete peer"
                         disabled={isDeleting && deletePeerId === peer.peerId}
                         onClick={() => setConfirmDeleteId(peer.peerId)}
                       >
@@ -391,7 +412,7 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
                 setConfirmDeleteId(null);
               }}
             >
-              Delete
+              Delete peer
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -400,15 +421,15 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
       {(detailPeerId || detailLoading) && (
         <>
           <div
-            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
+            className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]"
             aria-hidden
             onClick={() => {
               setDetailPeerId(null);
             }}
           />
-          <div className="fixed top-0 right-0 z-50 flex h-full w-[22rem] flex-col border-l border-border bg-background shadow-2xl">
+          <div className="fixed top-0 right-0 z-50 flex h-full w-[22rem] flex-col border-l border-border bg-background shadow-xl">
             {/* Header */}
-            <div className="flex items-center justify-between border-b px-5 py-4">
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
               <div className="flex min-w-0 flex-col gap-0.5">
                 <h2 className="text-sm font-semibold">Peer details</h2>
                 <p
@@ -426,6 +447,7 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
                   setDetailPeerId(null);
                 }}
                 title="Close"
+                aria-label="Close details"
               >
                 <X className="size-4" />
               </Button>
@@ -443,113 +465,79 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
                   ))}
                 </div>
               ) : detail ? (
-                <div className="flex flex-col divide-y">
-                  {/* Allowed IPs */}
-                  <div className="flex flex-col gap-1 px-5 py-3">
-                    <p className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-                      Allowed IPs
-                    </p>
+                <div className="flex flex-col divide-y divide-border">
+                  <DrawerField label="Allowed IPs">
                     <p className="font-mono text-sm">{detail.allowedIPs?.join(', ') ?? '—'}</p>
-                  </div>
+                  </DrawerField>
 
-                  {/* Address families */}
                   {(detail.addressFamilies?.length ?? 0) > 0 && (
-                    <div className="flex flex-col gap-1 px-5 py-3">
-                      <p className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-                        Address families
-                      </p>
+                    <DrawerField label="Address families">
                       <p className="text-sm">{detail.addressFamilies?.join(', ')}</p>
-                    </div>
+                    </DrawerField>
                   )}
 
-                  {/* Public key */}
-                  <div className="flex flex-col gap-1 px-5 py-3">
-                    <p className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-                      Public key
-                    </p>
+                  <DrawerField label="Public key">
                     <p
                       className="overflow-x-auto font-mono text-xs whitespace-nowrap text-muted-foreground"
                       title={detail.publicKey}
                     >
                       {detail.publicKey}
                     </p>
-                  </div>
+                  </DrawerField>
 
-                  {/* Status grid */}
-                  <div className="grid grid-cols-2 divide-x">
-                    <div className="flex flex-col gap-1 px-5 py-3">
-                      <p className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-                        Status
-                      </p>
-                      <Badge
-                        variant={detail.active ? 'default' : 'secondary'}
-                        className={`w-fit ${detail.active ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' : ''}`}
-                      >
+                  <div className="grid grid-cols-2 divide-x divide-border">
+                    <DrawerField label="Status">
+                      <Badge variant={detail.active ? 'success' : 'secondary'} className="w-fit">
+                        {detail.active ? (
+                          <span className="size-1.5 rounded-full bg-success" aria-hidden />
+                        ) : null}
                         {detail.active ? 'Active' : 'Inactive'}
                       </Badge>
-                    </div>
-                    <div className="flex flex-col gap-1 px-5 py-3">
-                      <p className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-                        Last handshake
-                      </p>
+                    </DrawerField>
+                    <DrawerField label="Last handshake">
                       <p className="text-sm">{formatDate(detail.lastHandshakeAt)}</p>
-                    </div>
+                    </DrawerField>
                   </div>
 
-                  {/* Created / Expires */}
-                  <div className="grid grid-cols-2 divide-x">
-                    <div className="flex flex-col gap-1 px-5 py-3">
-                      <p className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-                        Created
-                      </p>
+                  <div className="grid grid-cols-2 divide-x divide-border">
+                    <DrawerField label="Created">
                       <p className="text-sm">{formatDate(detail.createdAt)}</p>
-                    </div>
-                    <div className="flex flex-col gap-1 px-5 py-3">
-                      <p className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-                        Expires
-                      </p>
+                    </DrawerField>
+                    <DrawerField label="Expires">
                       <p className="text-sm">{formatExpires(detail.expiresAt)}</p>
-                    </div>
+                    </DrawerField>
                   </div>
 
-                  {/* Traffic */}
                   {(typeof detail.receiveBytes === 'number' ||
                     typeof detail.transmitBytes === 'number') && (
-                    <div className="grid grid-cols-2 divide-x">
+                    <div className="grid grid-cols-2 divide-x divide-border">
                       {typeof detail.receiveBytes === 'number' && (
-                        <div className="flex flex-col gap-1 px-5 py-3">
-                          <p className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-                            ↓ Receive
-                          </p>
+                        <DrawerField label="↓ Receive">
                           <p className="font-mono text-sm font-medium">
                             {formatBytes(detail.receiveBytes)}
                           </p>
-                        </div>
+                        </DrawerField>
                       )}
                       {typeof detail.transmitBytes === 'number' && (
-                        <div className="flex flex-col gap-1 px-5 py-3">
-                          <p className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-                            ↑ Transmit
-                          </p>
+                        <DrawerField label="↑ Transmit">
                           <p className="font-mono text-sm font-medium">
                             {formatBytes(detail.transmitBytes)}
                           </p>
-                        </div>
+                        </DrawerField>
                       )}
                     </div>
                   )}
 
-                  {/* Config */}
                   {(configError || configText) && (
                     <div className="px-5 py-3">
                       {configError && (
                         <Alert variant="destructive">
-                          <AlertCircle className="size-4" />
+                          <AlertCircle />
                           <AlertDescription>{configError}</AlertDescription>
                         </Alert>
                       )}
                       {configText && (
-                        <pre className="max-h-56 overflow-auto rounded-md bg-muted/50 px-3 py-2 font-mono text-xs leading-relaxed">
+                        <pre className="max-h-56 overflow-auto rounded-md border border-border bg-muted/50 px-3 py-2 font-mono text-xs leading-relaxed">
                           {renderConfig(configText)}
                         </pre>
                       )}
@@ -563,12 +551,11 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
 
             {/* Footer */}
             {detail && (
-              <div className="flex items-center justify-between gap-2 border-t px-5 py-4">
+              <div className="flex items-center justify-between gap-2 border-t border-border px-5 py-4">
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
                     size="sm"
-                    className="gap-1.5"
                     disabled={isConfigLoading || !detail?.peerId}
                     onClick={handleRegenerateConfig}
                   >
@@ -584,7 +571,7 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  className="text-muted-foreground hover:bg-destructive-muted hover:text-destructive"
                   disabled={isDeleting}
                   onClick={() => {
                     if (detail?.peerId) setConfirmDeleteId(detail.peerId);

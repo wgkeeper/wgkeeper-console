@@ -130,10 +130,7 @@ export const ProfilePage = ({ apiFetch, initialUsername }: Props) => {
         <CardContent>
           <form id="change-password-form" className="flex flex-col gap-4" onSubmit={handleSubmit}>
             <div className="flex flex-col gap-1.5">
-              <Label
-                htmlFor="currentPassword"
-                className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
-              >
+              <Label htmlFor="currentPassword" className="text-sm font-medium">
                 Current password
               </Label>
               <Input
@@ -147,10 +144,7 @@ export const ProfilePage = ({ apiFetch, initialUsername }: Props) => {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label
-                htmlFor="newPassword"
-                className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
-              >
+              <Label htmlFor="newPassword" className="text-sm font-medium">
                 New password
               </Label>
               <Input
@@ -166,10 +160,7 @@ export const ProfilePage = ({ apiFetch, initialUsername }: Props) => {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label
-                htmlFor="confirmPassword"
-                className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
-              >
+              <Label htmlFor="confirmPassword" className="text-sm font-medium">
                 Confirm new password
               </Label>
               <Input
@@ -183,14 +174,14 @@ export const ProfilePage = ({ apiFetch, initialUsername }: Props) => {
               />
             </div>
             {notice ? (
-              <Alert className="border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
-                <CheckCircle2 className="size-4 !text-emerald-600 dark:!text-emerald-400" />
+              <Alert variant="success">
+                <CheckCircle2 />
                 <AlertDescription>{notice}</AlertDescription>
               </Alert>
             ) : null}
             {error ? (
               <Alert variant="destructive">
-                <AlertCircle className="size-4" />
+                <AlertCircle />
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             ) : null}
