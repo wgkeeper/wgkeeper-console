@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -21,7 +20,20 @@ import (
 	"wg-keeper-backend/internal/models"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
+)
+
+const (
+	// releaseRetryAfterFailure keeps a failed GitHub lookup (no internet,
+	// rate limit) from slowing down every node list request.
+	releaseRetryAfterFailure = 5 * time.Minute
+	// refreshTimeout bounds a status sweep below the default 30s HTTP write
+	// timeout, so the client always gets an answer.
+	refreshTimeout = 20 * time.Second
+	// refreshConcurrency is how many nodes a sweep checks at once.
+	refreshConcurrency = 10
 )
 
 var sharedHTTPTransport = &http.Transport{
@@ -46,6 +58,11 @@ type DashboardService struct {
 	latestRelease    *LatestNodeRelease
 	latestReleaseAt  time.Time
 	latestReleaseTTL time.Duration
+	releaseFailedAt  time.Time
+	releaseGroup     singleflight.Group
+	refreshGroup     singleflight.Group
+	// sweepTimeout overrides refreshTimeout in tests.
+	sweepTimeout time.Duration
 }
 
 func NewDashboardService() *DashboardService {
@@ -78,15 +95,6 @@ func previewLatestNodeReleaseOverride() *LatestNodeRelease {
 		Version:     normalized,
 		URL:         "https://github.com/wgkeeper/wgkeeper-node/releases",
 		PublishedAt: time.Now().UTC().Format(time.RFC3339),
-	}
-}
-
-func closeResponseBody(resp *http.Response) {
-	if resp == nil || resp.Body == nil {
-		return
-	}
-	if err := resp.Body.Close(); err != nil {
-		slog.Warn("failed to close response body", "err", err)
 	}
 }
 
@@ -140,31 +148,49 @@ func (s *DashboardService) GetLatestNodeRelease(ctx context.Context) (*LatestNod
 	}
 
 	s.releaseCacheMu.Lock()
-	if s.latestRelease != nil && time.Since(s.latestReleaseAt) < s.latestReleaseTTL {
-		release := *s.latestRelease
+	fresh := s.latestRelease != nil && time.Since(s.latestReleaseAt) < s.latestReleaseTTL
+	backingOff := time.Since(s.releaseFailedAt) < releaseRetryAfterFailure
+	if fresh || backingOff {
+		cached := s.cachedReleaseLocked()
 		s.releaseCacheMu.Unlock()
-		return &release, nil
+		if cached == nil {
+			return nil, errors.New("latest node release unavailable, retrying later")
+		}
+		return cached, nil
 	}
 	s.releaseCacheMu.Unlock()
 
-	release, err := s.fetchLatestNodeRelease(ctx)
+	// Concurrent requests share one lookup, and it isn't cut short when the
+	// request that started it goes away.
+	result, err, _ := s.releaseGroup.Do("latest", func() (any, error) {
+		return s.fetchLatestNodeRelease(context.WithoutCancel(ctx))
+	})
+
+	s.releaseCacheMu.Lock()
+	defer s.releaseCacheMu.Unlock()
 	if err != nil {
-		s.releaseCacheMu.Lock()
-		defer s.releaseCacheMu.Unlock()
-		if s.latestRelease != nil {
-			cached := *s.latestRelease
-			return &cached, nil
+		s.releaseFailedAt = time.Now()
+		if cached := s.cachedReleaseLocked(); cached != nil {
+			return cached, nil
 		}
 		return nil, err
 	}
-
-	s.releaseCacheMu.Lock()
+	release, ok := result.(*LatestNodeRelease)
+	if !ok {
+		return nil, fmt.Errorf("unexpected release lookup result %T", result)
+	}
 	s.latestRelease = release
 	s.latestReleaseAt = time.Now()
-	s.releaseCacheMu.Unlock()
+	s.releaseFailedAt = time.Time{}
+	return s.cachedReleaseLocked(), nil
+}
 
-	cloned := *release
-	return &cloned, nil
+func (s *DashboardService) cachedReleaseLocked() *LatestNodeRelease {
+	if s.latestRelease == nil {
+		return nil
+	}
+	cloned := *s.latestRelease
+	return &cloned
 }
 
 func (s *DashboardService) fetchLatestNodeRelease(ctx context.Context) (*LatestNodeRelease, error) {
@@ -194,7 +220,7 @@ func (s *DashboardService) fetchLatestNodeRelease(ctx context.Context) (*LatestN
 		HTMLURL     string `json:"html_url"`
 		PublishedAt string `json:"published_at"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&payload); err != nil {
 		return nil, err
 	}
 
@@ -276,9 +302,6 @@ func IsVersionOutdated(currentVersion *string, latestRelease *LatestNodeRelease)
 	return false
 }
 
-// ErrNodeNotFound is returned when no node matches the lookup.
-var ErrNodeNotFound = errors.New("node not found")
-
 func (s *DashboardService) FindNodeByID(ctx context.Context, id string) (*models.Node, error) {
 	return s.findNode(ctx, "id = ?", id)
 }
@@ -321,6 +344,10 @@ func (s *DashboardService) CreateNode(ctx context.Context, input struct {
 	}
 
 	err = s.db.WithContext(ctx).Create(&node).Error
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		// Another request added the same address after the handler's check.
+		return nil, ErrNodeExists
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -337,46 +364,62 @@ func (s *DashboardService) DeleteNode(ctx context.Context, id string) (*models.N
 	return node, err
 }
 
+// RefreshStatuses checks every node and stores its status and version.
+// Concurrent calls (several tabs, several admins) share one sweep, which runs
+// for at most refreshTimeout even if the request that started it goes away.
 func (s *DashboardService) RefreshStatuses(ctx context.Context) error {
+	_, err, _ := s.refreshGroup.Do("refresh", func() (any, error) {
+		timeout := refreshTimeout
+		if s.sweepTimeout > 0 {
+			timeout = s.sweepTimeout
+		}
+		sweepCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+		defer cancel()
+		return nil, s.refreshStatuses(sweepCtx)
+	})
+	return err
+}
+
+func (s *DashboardService) refreshStatuses(ctx context.Context) error {
 	var nodes []models.Node
 	if err := s.db.WithContext(ctx).Find(&nodes).Error; err != nil {
 		return err
 	}
 
-	const maxConcurrent = 10
-	type result struct {
-		node   *models.Node
-		health *HealthResult
-		err    error
-	}
-	results := make(chan result, len(nodes))
-	sem := make(chan struct{}, maxConcurrent)
-
-	for _, node := range nodes {
-		sem <- struct{}{}
-		go func(n models.Node) {
-			defer func() { <-sem }()
-			health, err := s.checkHealth(ctx, n.Address, string(n.APIKey))
-			results <- result{node: &n, health: health, err: err}
-		}(node)
-	}
-
-	for i := 0; i < len(nodes); i++ {
-		res := <-results
-		if res.err == nil && res.health != nil {
-			updates := map[string]any{
-				"status": res.health.Status,
+	results := make([]*HealthResult, len(nodes))
+	var g errgroup.Group
+	g.SetLimit(refreshConcurrency)
+	for i := range nodes {
+		g.Go(func() error {
+			health, err := s.checkHealth(ctx, nodes[i].Address, string(nodes[i].APIKey))
+			// A check cut off by the sweep deadline says nothing about the
+			// node: keep its last known status instead of marking it offline.
+			if err == nil && ctx.Err() == nil {
+				results[i] = health
 			}
-			if res.health.Version != nil {
-				updates["version"] = res.health.Version
+			return nil
+		})
+	}
+	_ = g.Wait() //nolint:errcheck // the workers never return an error
+
+	// The sweep context may have just expired; give the write its own short one.
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	return s.db.WithContext(writeCtx).Transaction(func(tx *gorm.DB) error {
+		for i, health := range results {
+			if health == nil {
+				continue
 			}
-			if err := s.db.WithContext(ctx).Model(&models.Node{}).Where("id = ?", res.node.ID).Updates(updates).Error; err != nil {
-				slog.Error("failed to update node status", "node_id", res.node.ID, "err", err)
+			updates := map[string]any{"status": health.Status}
+			if health.Version != nil {
+				updates["version"] = health.Version
+			}
+			if err := tx.Model(&models.Node{}).Where("id = ?", nodes[i].ID).Updates(updates).Error; err != nil {
+				return fmt.Errorf("update node %s: %w", nodes[i].ID, err)
 			}
 		}
-	}
-
-	return nil
+		return nil
+	})
 }
 
 func (s *DashboardService) GetNodeStats(ctx context.Context, id string) (*StatsResponse, error) {
@@ -487,7 +530,9 @@ func (s *DashboardService) fetchStatsData(ctx context.Context, address string, a
 	for _, endpoint := range endpoints {
 		resp, err := s.fetchJSONWithTimeout(ctx, address+endpoint, apiKey, 2500*time.Millisecond, true, "GET", nil, "")
 		if err != nil {
-			continue
+			// The node is unreachable; trying another path would only double
+			// the wait.
+			break
 		}
 
 		status := resp.StatusCode
@@ -502,8 +547,9 @@ func (s *DashboardService) fetchStatsData(ctx context.Context, address string, a
 			}, nil
 		}
 
-		if status == 404 {
-			continue
+		// Only a missing /stats is worth retrying as /stats/ (older nodes).
+		if status != http.StatusNotFound {
+			break
 		}
 	}
 
@@ -529,7 +575,6 @@ func (s *DashboardService) fetchWithTimeout(ctx context.Context, urlStr string, 
 	}
 
 	req.Header.Set("X-API-KEY", apiKey)
-	req.Header.Set("X_API_KEY", apiKey)
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
@@ -554,7 +599,6 @@ func (s *DashboardService) fetchJSONWithTimeout(ctx context.Context, urlStr stri
 	}
 
 	req.Header.Set("X-API-KEY", apiKey)
-	req.Header.Set("X_API_KEY", apiKey)
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
@@ -566,7 +610,7 @@ func (s *DashboardService) fetchJSONWithTimeout(ctx context.Context, urlStr stri
 	defer closeResponseBody(resp)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		bodyBytes, err := io.ReadAll(resp.Body)
+		bodyBytes, err := readBody(resp, maxErrorBodyBytes)
 		if err != nil {
 			// Best effort: the status code alone still describes the failure.
 			bodyBytes = nil
@@ -586,9 +630,9 @@ func (s *DashboardService) fetchJSONWithTimeout(ctx context.Context, urlStr stri
 		}, nil
 	}
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := readBody(resp, maxNodeResponseBytes)
 	if err != nil {
-		return &FetchResponse{OK: false, StatusCode: resp.StatusCode}, err
+		return &FetchResponse{OK: false, StatusCode: resp.StatusCode}, unreachable(err)
 	}
 
 	var data StatsData
@@ -776,10 +820,12 @@ DNS = %s
 PublicKey = %s
 PresharedKey = %s
 AllowedIPs = %s
-Endpoint = %s:%d
+Endpoint = %s
 PersistentKeepalive = 25
 
-`, privateKey, allowedIP, strings.Join(effectiveDNS, ", "), serverPublicKey, presharedKey, allowedIPsLine, host, listenPort)
+`, privateKey, allowedIP, strings.Join(effectiveDNS, ", "), serverPublicKey, presharedKey, allowedIPsLine,
+				// JoinHostPort brackets IPv6 hosts: [fd00::1]:51820.
+				net.JoinHostPort(host, strconv.Itoa(listenPort)))
 
 			return &ConfigResponse{
 				Data:       &config,
@@ -809,7 +855,6 @@ func (s *DashboardService) fetchPeerConfig(ctx context.Context, urlStr string, a
 	}
 
 	req.Header.Set("X-API-KEY", apiKey)
-	req.Header.Set("X_API_KEY", apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
@@ -818,17 +863,21 @@ func (s *DashboardService) fetchPeerConfig(ctx context.Context, urlStr string, a
 	}
 	defer closeResponseBody(resp)
 
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return &PeerConfigFetchResponse{OK: false, StatusCode: resp.StatusCode}, err
-	}
-
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		bodyBytes, err := readBody(resp, maxErrorBodyBytes)
+		if err != nil {
+			bodyBytes = nil
+		}
 		return &PeerConfigFetchResponse{
 			OK:         false,
 			StatusCode: resp.StatusCode,
 			ErrorData:  parseJSONErrorBody(bodyBytes),
 		}, nil
+	}
+
+	bodyBytes, err := readBody(resp, maxNodeResponseBytes)
+	if err != nil {
+		return &PeerConfigFetchResponse{OK: false, StatusCode: resp.StatusCode}, unreachable(err)
 	}
 
 	var data PeerConfigResponse
@@ -875,11 +924,10 @@ func (s *DashboardService) deletePeerData(ctx context.Context, address string, a
 	}
 
 	req.Header.Set("X-API-KEY", apiKey)
-	req.Header.Set("X_API_KEY", apiKey)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return &DeletePeerResponse{OK: false}, err
+		return nil, unreachable(err)
 	}
 	defer closeResponseBody(resp)
 
@@ -941,12 +989,10 @@ func (s *DashboardService) GetNodePeers(ctx context.Context, id string, offset i
 		return nil, err
 	}
 
-	raw, err := s.fetchPeersList(ctx, node.Address, string(node.APIKey), offset, limit)
-	if err != nil || raw == nil {
-		return &PeersListResponse{
-			Data: []NodePeerListItem{},
-			Meta: PeersMeta{Offset: offset, Limit: limit},
-		}, nil
+	urlStr := fmt.Sprintf("%s/peers?offset=%d&limit=%d", node.Address, offset, limit)
+	raw, err := getNodeJSON[PeersListResponse](ctx, urlStr, string(node.APIKey), 10*time.Second)
+	if err != nil {
+		return nil, err
 	}
 
 	// Drop rows missing required identifiers — the UI keys/labels rows by these,
@@ -963,121 +1009,41 @@ func (s *DashboardService) GetNodePeers(ctx context.Context, id string, offset i
 	return raw, nil
 }
 
-func (s *DashboardService) fetchPeersList(ctx context.Context, address string, apiKey string, offset int, limit int) (*PeersListResponse, error) {
-	url := fmt.Sprintf("%s/peers?offset=%d&limit=%d", address, offset, limit)
-	resp, err := s.fetchPeersListJSON(ctx, url, apiKey, 10*time.Second)
-	if err != nil || !resp.OK || resp.Data == nil {
-		return nil, err
-	}
-	return resp.Data, nil
-}
-
-func (s *DashboardService) fetchPeersListJSON(ctx context.Context, urlStr string, apiKey string, timeout time.Duration) (*PeersListFetchResponse, error) {
-	client := newHTTPClient(timeout)
-	req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
-	if err != nil {
-		return &PeersListFetchResponse{OK: false}, err
-	}
-
-	req.Header.Set("X-API-KEY", apiKey)
-	req.Header.Set("X_API_KEY", apiKey)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return &PeersListFetchResponse{OK: false}, err
-	}
-	defer closeResponseBody(resp)
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return &PeersListFetchResponse{OK: false, StatusCode: resp.StatusCode}, err
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &PeersListFetchResponse{
-			OK:         false,
-			StatusCode: resp.StatusCode,
-		}, nil
-	}
-
-	var data PeersListResponse
-	if err := json.Unmarshal(bodyBytes, &data); err != nil {
-		return &PeersListFetchResponse{OK: false, StatusCode: resp.StatusCode}, err
-	}
-
-	return &PeersListFetchResponse{
-		OK:         true,
-		StatusCode: resp.StatusCode,
-		Data:       &data,
-	}, nil
-}
-
-type PeersListFetchResponse struct {
-	OK         bool
-	StatusCode int
-	Data       *PeersListResponse
-}
-
 func (s *DashboardService) GetNodePeerDetail(ctx context.Context, id string, peerID string) (*NodePeerDetail, error) {
 	node, err := s.FindNodeByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	return s.fetchPeerDetail(ctx, node.Address, string(node.APIKey), peerID)
+	urlStr := node.Address + "/peers/" + url.PathEscape(peerID)
+	return getNodeJSON[NodePeerDetail](ctx, urlStr, string(node.APIKey), 5*time.Second)
 }
 
-func (s *DashboardService) fetchPeerDetail(ctx context.Context, address string, apiKey string, peerID string) (*NodePeerDetail, error) {
-	path := fmt.Sprintf("/peers/%s", url.PathEscape(peerID))
-	resp, err := s.fetchPeerDetailJSON(ctx, address+path, apiKey, 5*time.Second)
-	if err != nil || !resp.OK || resp.Data == nil {
+// getNodeJSON GETs a node endpoint and decodes a JSON body into T. Failures
+// are an *UpstreamError for non-2xx answers or wrap ErrNodeUnreachable.
+func getNodeJSON[T any](ctx context.Context, urlStr string, apiKey string, timeout time.Duration) (*T, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
+	if err != nil {
 		return nil, err
 	}
-	return resp.Data, nil
-}
-
-func (s *DashboardService) fetchPeerDetailJSON(ctx context.Context, urlStr string, apiKey string, timeout time.Duration) (*PeerDetailFetchResponse, error) {
-	client := newHTTPClient(timeout)
-	req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
-	if err != nil {
-		return &PeerDetailFetchResponse{OK: false}, err
-	}
-
 	req.Header.Set("X-API-KEY", apiKey)
-	req.Header.Set("X_API_KEY", apiKey)
 
-	resp, err := client.Do(req)
+	resp, err := newHTTPClient(timeout).Do(req)
 	if err != nil {
-		return &PeerDetailFetchResponse{OK: false}, err
+		return nil, unreachable(err)
 	}
 	defer closeResponseBody(resp)
 
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return &PeerDetailFetchResponse{OK: false, StatusCode: resp.StatusCode}, err
-	}
-
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &PeerDetailFetchResponse{
-			OK:         false,
-			StatusCode: resp.StatusCode,
-		}, nil
+		return nil, &UpstreamError{Status: resp.StatusCode}
 	}
-
-	var data NodePeerDetail
-	if err := json.Unmarshal(bodyBytes, &data); err != nil {
-		return &PeerDetailFetchResponse{OK: false, StatusCode: resp.StatusCode}, err
+	body, err := readBody(resp, maxNodeResponseBytes)
+	if err != nil {
+		return nil, unreachable(err)
 	}
-
-	return &PeerDetailFetchResponse{
-		OK:         true,
-		StatusCode: resp.StatusCode,
-		Data:       &data,
-	}, nil
-}
-
-type PeerDetailFetchResponse struct {
-	OK         bool
-	StatusCode int
-	Data       *NodePeerDetail
+	var out T
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, unreachable(fmt.Errorf("decode response: %w", err))
+	}
+	return &out, nil
 }

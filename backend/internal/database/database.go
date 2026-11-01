@@ -35,7 +35,10 @@ func Init() error {
 	slog.Info("database", "driver", driver)
 
 	DB, err = gorm.Open(dialector, &gorm.Config{
-		Logger: gormLogger(),
+		// Map driver errors to gorm.ErrDuplicatedKey and friends, so a unique
+		// constraint violation can be told apart from other failures.
+		TranslateError: true,
+		Logger:         gormLogger(),
 	})
 	if err != nil {
 		return fmt.Errorf("database: open: %w", err)

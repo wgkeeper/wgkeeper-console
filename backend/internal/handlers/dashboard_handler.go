@@ -138,8 +138,8 @@ func (h *DashboardHandler) GetNodes(c *gin.Context) {
 			"isOutdated":       services.IsVersionOutdated(node.Version, latestRelease),
 			"latestVersion":    latestVersion,
 			"latestVersionUrl": latestVersionURL,
-			"createdAt":        node.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-			"updatedAt":        node.UpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+			"createdAt":        node.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+			"updatedAt":        node.UpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		}
 	}
 
@@ -200,7 +200,12 @@ func (h *DashboardHandler) CreateNode(c *gin.Context) {
 		Address: address,
 		APIKey:  apiKey,
 	})
+	if errors.Is(err, services.ErrNodeExists) {
+		c.JSON(http.StatusConflict, gin.H{"ok": false, "error": "node_exists"})
+		return
+	}
 	if err != nil {
+		slog.Error("create node", "err", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
 		return
 	}
@@ -273,7 +278,11 @@ func (h *DashboardHandler) GetNodeStats(c *gin.Context) {
 	}
 
 	stats, err := h.service.GetNodeStats(c.Request.Context(), id)
-	if err != nil || stats == nil || stats.Data == nil {
+	if err != nil {
+		writeNodeError(c, err, "stats_unavailable")
+		return
+	}
+	if stats == nil || stats.Data == nil {
 		// Always return 502 for upstream failures — our backend's status code
 		// stays meaningful (502 = upstream failed). The upstream's actual code
 		// is preserved in the response body for diagnostics.
@@ -361,7 +370,11 @@ func (h *DashboardHandler) GetNodeConfig(c *gin.Context) {
 	}
 
 	config, err := h.service.GetNodeConfig(c.Request.Context(), id, peerID, dns, expiresAt, addressFamilies)
-	if err != nil || config == nil || config.Data == nil {
+	if err != nil {
+		writeNodeError(c, err, "config_unavailable")
+		return
+	}
+	if config == nil || config.Data == nil {
 		// Always 502 for upstream failures — upstream's actual code stays in
 		// the response body for diagnostics.
 		topErrorCode := "config_unavailable"
@@ -449,8 +462,8 @@ func (h *DashboardHandler) GetNodePeers(c *gin.Context) {
 	}
 
 	result, err := h.service.GetNodePeers(c.Request.Context(), id, offset, limit)
-	if err != nil || result == nil {
-		c.JSON(http.StatusBadGateway, gin.H{"ok": false, "error": "peers_unavailable"})
+	if err != nil {
+		writeNodeError(c, err, "peers_unavailable")
 		return
 	}
 
@@ -478,8 +491,13 @@ func (h *DashboardHandler) GetNodePeerDetail(c *gin.Context) {
 	}
 
 	peer, err := h.service.GetNodePeerDetail(c.Request.Context(), id, peerID)
-	if err != nil || peer == nil {
-		c.JSON(http.StatusNotFound, gin.H{"ok": false, "error": "peer_not_found"})
+	if err != nil {
+		var upstream *services.UpstreamError
+		if errors.As(err, &upstream) && upstream.Status == http.StatusNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"ok": false, "error": "peer_not_found"})
+			return
+		}
+		writeNodeError(c, err, "peer_unavailable")
 		return
 	}
 
@@ -507,8 +525,8 @@ func (h *DashboardHandler) DeletePeer(c *gin.Context) {
 	}
 
 	result, err := h.service.DeletePeer(c.Request.Context(), id, peerID)
-	if err != nil || result == nil {
-		c.JSON(http.StatusBadGateway, gin.H{"ok": false, "error": "peer_delete_failed"})
+	if err != nil {
+		writeNodeError(c, err, "peer_delete_failed")
 		return
 	}
 
@@ -547,9 +565,8 @@ func (h *DashboardHandler) DeleteNode(c *gin.Context) {
 		return
 	}
 
-	deleted, err := h.service.DeleteNode(c.Request.Context(), id)
-	if err != nil || deleted == nil {
-		c.JSON(http.StatusNotFound, gin.H{"ok": false, "error": "node_not_found"})
+	if _, err := h.service.DeleteNode(c.Request.Context(), id); err != nil {
+		writeNodeError(c, err, "node_delete_failed")
 		return
 	}
 
