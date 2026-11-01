@@ -2,22 +2,23 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"strings"
+	"strconv"
 	"syscall"
 
 	"wg-keeper-backend/internal/config"
 	"wg-keeper-backend/internal/database"
-	"wg-keeper-backend/internal/handlers"
-	"wg-keeper-backend/internal/middleware"
+	"wg-keeper-backend/internal/logging"
+	"wg-keeper-backend/internal/metrics"
+	"wg-keeper-backend/internal/server"
+	"wg-keeper-backend/internal/services"
 
 	"github.com/gin-gonic/gin"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
 
 	_ "wg-keeper-backend/docs"
 )
@@ -42,152 +43,75 @@ import (
 // @name wg_session
 
 func main() {
+	if err := run(); err != nil {
+		slog.Error("fatal", "err", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	cfg, err := config.Load()
 	if err != nil {
-		slog.Error("failed to load config", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("load config: %w", err)
 	}
 
 	level := slog.LevelInfo
 	if cfg.Debug {
 		level = slog.LevelDebug
 	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
+	slog.SetDefault(logging.New(os.Stdout, cfg.LogFormat, level))
 
-	// Initialize database
 	if err := database.Init(); err != nil {
-		slog.Error("failed to initialize database", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("initialize database: %w", err)
+	}
+	defer func() {
+		if err := database.Close(); err != nil {
+			slog.Warn("close database", "err", err)
+		}
+	}()
+	sqlDB, err := database.DB.DB()
+	if err != nil {
+		return fmt.Errorf("database handle: %w", err)
 	}
 
-	// Set Gin mode
 	if cfg.Debug {
 		gin.SetMode(gin.DebugMode)
 	} else {
 		gin.SetMode(gin.ReleaseMode)
 	}
-	slog.Info("starting", "debug", cfg.Debug, "docs", cfg.DocsEnabled, "env", cfg.Environment)
+	slog.Info("starting", "debug", cfg.Debug, "docs", cfg.DocsEnabled, "env", cfg.Environment, "metrics", cfg.Metrics.Enabled())
 
-	r := gin.New()
-	r.Use(gin.Logger(), gin.Recovery(), middleware.RequestSizeLimit(1<<20), middleware.SecurityHeaders(cfg.IsProduction()), middleware.CORSMiddleware(cfg.CORS))
-	if err := r.SetTrustedProxies(cfg.Server.TrustedProxies); err != nil {
-		slog.Error("failed to set trusted proxies", "err", err)
-		os.Exit(1)
-	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
-	// Initialize handlers
-	authHandler := handlers.NewAuthHandler()
-	dashboardHandler := handlers.NewDashboardHandler()
-	loginRL := middleware.NewLoginRateLimiter()
-	apiRL := middleware.NewAPIRateLimiter()
-
-	// Swagger documentation (only when DOCS=true)
-	if cfg.DocsEnabled {
-		r.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler, ginSwagger.URL("/docs/doc.json")))
-		slog.Info("swagger UI available", "path", "/docs/index.html")
-	}
-
-	// API routes
-	api := r.Group("/api")
-	api.Use(middleware.NoStore(), middleware.SameOriginGuard(cfg.CORS.AllowedOrigins))
-	{
-		// Public auth routes
-		api.POST("/login", middleware.LoginRateLimit(loginRL), authHandler.Login)
-
-		// Protected routes (require active session)
-		protected := api.Group("/")
-		protected.Use(middleware.AuthMiddleware(), middleware.APIRateLimit(apiRL))
-
-		// Auth routes (single admin user for now)
-		protected.GET("/me", authHandler.GetMe)
-		protected.POST("/logout", authHandler.Logout)
-		protected.POST("/change-password", authHandler.ChangePassword)
-
-		// Dashboard routes: closed until the bootstrap password is changed.
-		nodes := protected.Group("/")
-		nodes.Use(middleware.RequirePasswordChanged())
-		nodes.GET("/nodes", dashboardHandler.GetNodes)
-		nodes.POST("/nodes", dashboardHandler.CreateNode)
-		nodes.POST("/nodes/check", dashboardHandler.CheckNode)
-		nodes.GET("/nodes/:id/stats", dashboardHandler.GetNodeStats)
-		// POST, not GET: generating a config creates or rotates the peer on the node.
-		nodes.POST("/nodes/:id/config", dashboardHandler.GetNodeConfig)
-		nodes.GET("/nodes/:id/peers", dashboardHandler.GetNodePeers)
-		nodes.GET("/nodes/:id/peers/:peerId", dashboardHandler.GetNodePeerDetail)
-		nodes.DELETE("/nodes/:id/peers", dashboardHandler.DeletePeer)
-		nodes.DELETE("/nodes/:id", dashboardHandler.DeleteNode)
-		nodes.POST("/nodes/refresh", dashboardHandler.RefreshNodes)
-	}
-
-	// Serve static files in production
-	isProd := cfg.IsProduction()
-	staticRoot := "./public"
-	if isProd {
-		indexPath := filepath.Join(staticRoot, "index.html")
-		if _, err := os.Stat(indexPath); err == nil {
-			assetsPath := filepath.Join(staticRoot, "assets")
-			if _, err := os.Stat(assetsPath); err == nil {
-				// Serve compiled assets under /assets to avoid conflicting
-				// with API routes (e.g. /api)
-				r.Static("/assets", assetsPath)
-			}
-			// Serve the SPA entrypoint at /. Use a custom handler instead of
-			// StaticFile so we can set no-cache headers — the bundle's hashed
-			// asset filenames let /assets cache forever, but index.html must
-			// always be revalidated so a deploy doesn't leave clients pinned
-			// to a stale build that calls removed APIs.
-			serveIndex := func(c *gin.Context) {
-				c.Header("Cache-Control", "no-cache, must-revalidate")
-				c.File(indexPath)
-			}
-			r.GET("/", serveIndex)
-			robotsPath := filepath.Join(staticRoot, "robots.txt")
-			if _, err := os.Stat(robotsPath); err == nil {
-				r.StaticFile("/robots.txt", robotsPath)
-			}
-			themeInitPath := filepath.Join(staticRoot, "theme-init.js")
-			if _, err := os.Stat(themeInitPath); err == nil {
-				r.StaticFile("/theme-init.js", themeInitPath)
-			}
-			faviconPath := filepath.Join(staticRoot, "favicon.svg")
-			if _, err := os.Stat(faviconPath); err == nil {
-				r.StaticFile("/favicon.svg", faviconPath)
-			}
-			r.NoRoute(func(c *gin.Context) {
-				// Skip API routes
-				if strings.HasPrefix(c.Request.URL.Path, "/api") {
-					c.JSON(404, gin.H{"error": "not_found"})
-					return
-				}
-				// Only serve HTML for GET requests with HTML accept header
-				if c.Request.Method != "GET" {
-					c.JSON(404, gin.H{"error": "not_found"})
-					return
-				}
-				accept := c.GetHeader("Accept")
-				if accept != "" && !strings.Contains(accept, "text/html") {
-					c.JSON(404, gin.H{"error": "not_found"})
-					return
-				}
-				serveIndex(c)
-			})
-		}
+	var m *metrics.Metrics
+	svc := services.NewDashboardService()
+	metricsDone := make(chan error, 1)
+	if cfg.Metrics.Enabled() {
+		m = metrics.New()
+		m.BindNodeCounter(svc)
+		svc.WithTransport(m.InstrumentTransport(services.SharedTransport()))
+		metricsSrv := metrics.NewServer(":"+strconv.Itoa(cfg.Metrics.Port), cfg.Metrics.Token, m)
+		slog.Info("metrics enabled", "port", cfg.Metrics.Port)
+		go func() { metricsDone <- metrics.Run(ctx, metricsSrv) }()
 	} else {
-		r.NoRoute(func(c *gin.Context) {
-			if strings.HasPrefix(c.Request.URL.Path, "/api") {
-				c.JSON(http.StatusNotFound, gin.H{"error": "not_found"})
-				return
-			}
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": "frontend_dev_server_only",
-				"hint":  "Use Vite dev server at http://localhost:5173 in development.",
-			})
-		})
+		close(metricsDone)
 	}
 
-	server := &http.Server{
+	router, stopRouter, err := server.NewRouter(cfg, server.Deps{
+		DB:         sqlDB,
+		Service:    svc,
+		Metrics:    m,
+		StaticRoot: "./public",
+	})
+	if err != nil {
+		return err
+	}
+	defer stopRouter()
+
+	httpServer := &http.Server{
 		Addr:              ":" + cfg.Server.Port,
-		Handler:           r,
+		Handler:           router,
 		ReadTimeout:       cfg.Server.ReadTimeout,
 		ReadHeaderTimeout: cfg.Server.ReadHeaderTimeout,
 		WriteTimeout:      cfg.Server.WriteTimeout,
@@ -195,23 +119,30 @@ func main() {
 		MaxHeaderBytes:    1 << 13, // 8KB
 	}
 
+	serveErr := make(chan error, 1)
 	go func() {
 		slog.Info("server starting", "port", cfg.Server.Port)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("server error", "err", err)
-			os.Exit(1)
-		}
+		serveErr <- httpServer.ListenAndServe()
 	}()
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
-	err = server.Shutdown(shutdownCtx)
-	shutdownCancel()
-	if err != nil {
-		slog.Error("failed to shut down server", "err", err)
-		os.Exit(1)
+	select {
+	case err := <-serveErr:
+		if !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("serve: %w", err)
+		}
+	case <-ctx.Done():
+		slog.Info("shutting down")
 	}
+
+	// In-flight requests get ShutdownTimeout to finish; the deferred calls then
+	// stop the rate limiters and close the database.
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.Server.ShutdownTimeout)
+	defer cancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("shut down server: %w", err)
+	}
+	if err := <-metricsDone; err != nil {
+		slog.Warn("metrics server", "err", err)
+	}
+	return nil
 }

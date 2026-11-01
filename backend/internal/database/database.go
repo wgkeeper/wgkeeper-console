@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
@@ -95,12 +96,32 @@ func dialectorFromURL(dbURL string) (gorm.Dialector, string, error) {
 	return sqlite.Open(dsn), "sqlite", nil
 }
 
-// gormLogger returns Silent logger in production and Info logger when DEBUG=true.
+// gormLogger routes gorm through slog. Queries are logged with placeholders,
+// never values, so password hashes and API keys stay out of the log; slow
+// queries are logged even without DEBUG.
 func gormLogger() logger.Interface {
+	level := logger.Warn
 	if config.Current().Debug {
-		return logger.Default.LogMode(logger.Info)
+		level = logger.Info
 	}
-	return logger.Default.LogMode(logger.Silent)
+	return logger.NewSlogLogger(slog.Default(), logger.Config{
+		SlowThreshold:             500 * time.Millisecond,
+		LogLevel:                  level,
+		IgnoreRecordNotFoundError: true,
+		ParameterizedQueries:      true,
+	})
+}
+
+// Close closes the database connection pool.
+func Close() error {
+	if DB == nil {
+		return nil
+	}
+	sqlDB, err := DB.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
 }
 
 // isPostgresURL reports whether the URL targets a PostgreSQL server.

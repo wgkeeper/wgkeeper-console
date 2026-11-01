@@ -61,9 +61,13 @@ type DashboardHandler struct {
 }
 
 func NewDashboardHandler() *DashboardHandler {
-	return &DashboardHandler{
-		service: services.NewDashboardService(),
-	}
+	return NewDashboardHandlerWithService(services.NewDashboardService())
+}
+
+// NewDashboardHandlerWithService builds the handler around an existing
+// service, for example one whose node requests are instrumented.
+func NewDashboardHandlerWithService(svc *services.DashboardService) *DashboardHandler {
+	return &DashboardHandler{service: svc}
 }
 
 func parseNodeAddress(raw string) (string, bool) {
@@ -118,7 +122,7 @@ func (h *DashboardHandler) GetNodes(c *gin.Context) {
 	// update hints.
 	latestRelease, err := h.service.GetLatestNodeRelease(c.Request.Context())
 	if err != nil {
-		slog.Debug("latest node release unavailable", "err", err)
+		slog.DebugContext(c.Request.Context(), "latest node release unavailable", "err", err)
 	}
 	var latestVersion *string
 	var latestVersionURL *string
@@ -188,7 +192,7 @@ func (h *DashboardHandler) CreateNode(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"ok": false, "error": "node_exists"})
 		return
 	case !errors.Is(err, services.ErrNodeNotFound):
-		slog.Error("create node: look up address", "err", err)
+		slog.ErrorContext(c.Request.Context(), "create node: look up address", "err", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
 		return
 	}
@@ -205,7 +209,7 @@ func (h *DashboardHandler) CreateNode(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		slog.Error("create node", "err", err)
+		slog.ErrorContext(c.Request.Context(), "create node", "err", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
 		return
 	}

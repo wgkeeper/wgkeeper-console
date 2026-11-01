@@ -118,7 +118,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if err := database.DB.Where("username = ?", username).First(&user).Error; err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			// Not a 401: a database outage must not count towards the login lockout.
-			slog.Error("login: load user", "err", err)
+			slog.ErrorContext(c.Request.Context(), "login: load user", "err", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
 			return
 		}
@@ -160,7 +160,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		// Bumping the version revokes this token and any copy of it.
 		if err := database.DB.Model(&models.User{}).Where("id = ?", user.ID).
 			Update("session_version", gorm.Expr("session_version + 1")).Error; err != nil {
-			slog.Error("logout: revoke sessions", "err", err)
+			slog.ErrorContext(c.Request.Context(), "logout: revoke sessions", "err", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
 			return
 		}

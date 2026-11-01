@@ -188,6 +188,38 @@ Optional variables:
 | `DOCS` | `false` | Enables Swagger UI |
 | `DEBUG` | `false` | Enables debug logging |
 | `TRUSTED_PROXIES` | empty | Comma-separated list of proxy IPs/CIDRs whose `X-Forwarded-For` should be trusted. Only needed when running behind a reverse proxy — see below. |
+| `LOG_FORMAT` | `text` | `json` for one JSON object per line (log collectors) |
+| `METRICS_PORT` | unset (off) | Port of the Prometheus `/metrics` endpoint — see below |
+| `METRICS_TOKEN` | required with `METRICS_PORT` | Bearer token for `/metrics`, at least 32 characters |
+
+Invalid values stop the console at startup with a list of what's wrong, instead of silently falling back to defaults.
+
+### Health checks and logs
+
+- `GET /healthz` answers `200` while the process is up; the Docker image uses it as its `HEALTHCHECK`.
+- `GET /readyz` answers `200` when the database is reachable and `503` when it isn't.
+- Every response carries an `X-Request-Id` header, and every log line written while handling that request has the same `request_id`, so a failed request in the browser leads straight to its log entries.
+
+### Metrics
+
+Set `METRICS_PORT` and `METRICS_TOKEN` to expose Prometheus metrics on a separate port (keep it off the public internet):
+
+```yaml
+scrape_configs:
+  - job_name: wgkeeper-console
+    authorization:
+      credentials: <METRICS_TOKEN>
+    static_configs:
+      - targets: ["console:9100"]
+```
+
+| Metric | Labels | What it shows |
+|--------|--------|---------------|
+| `wgkeeper_console_http_requests_total` | `method`, `path`, `status_class` | API traffic and error rates |
+| `wgkeeper_console_http_request_duration_seconds` | `method`, `path` | API latency |
+| `wgkeeper_console_node_requests_total` | `op`, `result` | Calls to nodes; alert on `error_unreachable` and `error_unauthorized` |
+| `wgkeeper_console_node_request_duration_seconds` | `op` | How fast nodes answer |
+| `wgkeeper_console_nodes` | `status` | Stored nodes by last known status |
 
 ### Behind a reverse proxy
 

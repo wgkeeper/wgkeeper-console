@@ -36,7 +36,7 @@ func AuthMiddleware() gin.HandlerFunc {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"ok": false})
 				return
 			}
-			slog.Error("auth: load session user", "err", err)
+			slog.ErrorContext(c.Request.Context(), "auth: load session user", "err", err)
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"ok": false})
 			return
 		}

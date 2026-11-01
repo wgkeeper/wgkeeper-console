@@ -71,7 +71,7 @@ func serve(h gin.HandlerFunc, method, route, target string) *httptest.ResponseRe
 
 func TestGetNodePeersUnreachableIsNotAnEmptyList(t *testing.T) {
 	h := dashboardWithNode(t)
-	restore := stubDashboardRoundTripper(t, func(*http.Request) (*http.Response, error) {
+	restore := stubDashboardRoundTripper(t, h, func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("connection refused")
 	})
 	defer restore()
@@ -90,7 +90,7 @@ func TestGetNodePeersUnreachableIsNotAnEmptyList(t *testing.T) {
 func TestGetNodePeerDetailStatuses(t *testing.T) {
 	h := dashboardWithNode(t)
 	var status int
-	restore := stubDashboardRoundTripper(t, func(*http.Request) (*http.Response, error) {
+	restore := stubDashboardRoundTripper(t, h, func(*http.Request) (*http.Response, error) {
 		return dashboardJSONResponse(status, `{}`)
 	})
 	defer restore()

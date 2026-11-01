@@ -48,4 +48,8 @@ ENV DATABASE_URL=file:/app/data/wgkeeper-console.db
 
 EXPOSE 8000
 
+# Liveness: the process answers HTTP. Readiness (/readyz) also checks the database.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
+  CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/healthz" || exit 1
+
 CMD ["./server"]
