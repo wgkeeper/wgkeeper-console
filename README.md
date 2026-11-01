@@ -14,6 +14,10 @@
 
 </div>
 
+<p align="center">
+  <img width="1512" alt="wgkeeper console: the node list with status, versions and available updates" src="https://github.com/user-attachments/assets/a731eef4-4851-4cdb-ac94-ebbc89cf2ee5" />
+</p>
+
 ---
 
 wgkeeper console is a web admin panel for a fleet of [wgkeeper nodes](https://github.com/wgkeeper/wgkeeper-node). Add your nodes once, then create, inspect and revoke WireGuard peers on any of them from one place, and hand out ready-to-use client configs.
