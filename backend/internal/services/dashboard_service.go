@@ -108,6 +108,12 @@ func newHTTPClient(timeout time.Duration) *http.Client {
 	return &http.Client{
 		Timeout:   timeout,
 		Transport: sharedHTTPRoundTripper,
+		// Never follow redirects: Go would resend X-API-KEY to the new host
+		// (it only strips Authorization and Cookie), and a 307 would replay
+		// a POST with peer data to wherever the node points.
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
 }
 
@@ -302,7 +308,7 @@ func (s *DashboardService) CreateNode(input struct {
 		ID:      uuid.New().String(),
 		Name:    name,
 		Address: address,
-		APIKey:  input.APIKey,
+		APIKey:  models.SecretString(input.APIKey),
 		Status:  health.Status,
 		Version: health.Version,
 	}
@@ -343,7 +349,7 @@ func (s *DashboardService) RefreshStatuses() error {
 		sem <- struct{}{}
 		go func(n models.Node) {
 			defer func() { <-sem }()
-			health, err := s.checkHealth(n.Address, n.APIKey)
+			health, err := s.checkHealth(n.Address, string(n.APIKey))
 			results <- result{node: &n, health: health, err: err}
 		}(node)
 	}
@@ -372,7 +378,7 @@ func (s *DashboardService) GetNodeStats(id string) (*StatsResponse, error) {
 		return nil, err
 	}
 
-	return s.fetchStatsData(node.Address, node.APIKey)
+	return s.fetchStatsData(node.Address, string(node.APIKey))
 }
 
 func (s *DashboardService) CheckNode(address string, apiKey string) (*HealthResult, error) {
@@ -592,7 +598,7 @@ func (s *DashboardService) GetNodeConfig(id string, peerID string, dns []string,
 		return nil, err
 	}
 
-	return s.fetchConfigData(node.Address, node.APIKey, peerID, dns, expiresAt, addressFamilies)
+	return s.fetchConfigData(node.Address, string(node.APIKey), peerID, dns, expiresAt, addressFamilies)
 }
 
 type ConfigResponse struct {
@@ -833,7 +839,7 @@ func (s *DashboardService) DeletePeer(id string, peerID string) (*DeletePeerResp
 		return nil, err
 	}
 
-	return s.deletePeerData(node.Address, node.APIKey, peerID)
+	return s.deletePeerData(node.Address, string(node.APIKey), peerID)
 }
 
 type DeletePeerResponse struct {
@@ -918,7 +924,7 @@ func (s *DashboardService) GetNodePeers(id string, offset int, limit int) (*Peer
 		return nil, err
 	}
 
-	raw, err := s.fetchPeersList(node.Address, node.APIKey, offset, limit)
+	raw, err := s.fetchPeersList(node.Address, string(node.APIKey), offset, limit)
 	if err != nil || raw == nil {
 		return &PeersListResponse{
 			Data: []NodePeerListItem{},
@@ -1001,7 +1007,7 @@ func (s *DashboardService) GetNodePeerDetail(id string, peerID string) (*NodePee
 		return nil, err
 	}
 
-	return s.fetchPeerDetail(node.Address, node.APIKey, peerID)
+	return s.fetchPeerDetail(node.Address, string(node.APIKey), peerID)
 }
 
 func (s *DashboardService) fetchPeerDetail(address string, apiKey string, peerID string) (*NodePeerDetail, error) {

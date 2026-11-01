@@ -89,6 +89,7 @@ func main() {
 
 	// API routes
 	api := r.Group("/api")
+	api.Use(middleware.NoStore(), middleware.SameOriginGuard(cfg.CORS.AllowedOrigins))
 	{
 		// Public auth routes
 		api.POST("/login", middleware.LoginRateLimit(loginRL), authHandler.Login)
@@ -102,17 +103,20 @@ func main() {
 		protected.POST("/logout", authHandler.Logout)
 		protected.POST("/change-password", authHandler.ChangePassword)
 
-		// Dashboard routes
-		protected.GET("/nodes", dashboardHandler.GetNodes)
-		protected.POST("/nodes", dashboardHandler.CreateNode)
-		protected.POST("/nodes/check", dashboardHandler.CheckNode)
-		protected.GET("/nodes/:id/stats", dashboardHandler.GetNodeStats)
-		protected.GET("/nodes/:id/config", dashboardHandler.GetNodeConfig)
-		protected.GET("/nodes/:id/peers", dashboardHandler.GetNodePeers)
-		protected.GET("/nodes/:id/peers/:peerId", dashboardHandler.GetNodePeerDetail)
-		protected.DELETE("/nodes/:id/peers", dashboardHandler.DeletePeer)
-		protected.DELETE("/nodes/:id", dashboardHandler.DeleteNode)
-		protected.POST("/nodes/refresh", dashboardHandler.RefreshNodes)
+		// Dashboard routes: closed until the bootstrap password is changed.
+		nodes := protected.Group("/")
+		nodes.Use(middleware.RequirePasswordChanged())
+		nodes.GET("/nodes", dashboardHandler.GetNodes)
+		nodes.POST("/nodes", dashboardHandler.CreateNode)
+		nodes.POST("/nodes/check", dashboardHandler.CheckNode)
+		nodes.GET("/nodes/:id/stats", dashboardHandler.GetNodeStats)
+		// POST, not GET: generating a config creates or rotates the peer on the node.
+		nodes.POST("/nodes/:id/config", dashboardHandler.GetNodeConfig)
+		nodes.GET("/nodes/:id/peers", dashboardHandler.GetNodePeers)
+		nodes.GET("/nodes/:id/peers/:peerId", dashboardHandler.GetNodePeerDetail)
+		nodes.DELETE("/nodes/:id/peers", dashboardHandler.DeletePeer)
+		nodes.DELETE("/nodes/:id", dashboardHandler.DeleteNode)
+		nodes.POST("/nodes/refresh", dashboardHandler.RefreshNodes)
 	}
 
 	// Serve static files in production

@@ -85,7 +85,7 @@ export function usePeerDetail(
     try {
       const res = await apiFetch(
         `/api/nodes/${encodeURIComponent(nodeId)}/config?peerId=${encodeURIComponent(peerId)}`,
-        { signal: controller.signal },
+        { method: 'POST', signal: controller.signal },
       );
       if (!res.ok) {
         const rl = rateLimitMessage(res);

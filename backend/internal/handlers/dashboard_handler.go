@@ -70,6 +70,11 @@ func parseNodeAddress(raw string) (string, bool) {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return "", false
 	}
+	// Credentials in the URL would be stored and shown in the UI in plaintext;
+	// the node authenticates with the API key instead.
+	if u.User != nil {
+		return "", false
+	}
 	// Strip path/query/fragment — node addresses are bases that endpoints get
 	// appended to (e.g. "/readyz", "/peers"), so anything past the host would
 	// produce malformed upstream URLs.
@@ -305,7 +310,7 @@ func (h *DashboardHandler) GetNodeStats(c *gin.Context) {
 // @Success      200             {string}  string  "WireGuard config file"
 // @Failure      400             {object}  map[string]interface{}  "Bad request"
 // @Failure      502             {object}  map[string]interface{}  "Config unavailable"
-// @Router       /nodes/{id}/config [get]
+// @Router       /nodes/{id}/config [post]
 func (h *DashboardHandler) GetNodeConfig(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	peerID := strings.TrimSpace(c.Query("peerId"))

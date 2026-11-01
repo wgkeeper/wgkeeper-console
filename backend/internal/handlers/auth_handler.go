@@ -1,16 +1,30 @@
 package handlers
 
 import (
+	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 	"wg-keeper-backend/internal/auth"
-	"wg-keeper-backend/internal/config"
 	"wg-keeper-backend/internal/database"
 	"wg-keeper-backend/internal/models"
 )
+
+// dummyPasswordHash is compared against when the username does not exist, so
+// a login for an unknown user takes as long as one with a wrong password and
+// response timing does not reveal which usernames exist.
+var dummyPasswordHash = sync.OnceValue(func() []byte {
+	hash, err := bcrypt.GenerateFromPassword([]byte("wgkeeper-timing-equaliser"), bcrypt.DefaultCost)
+	if err != nil {
+		panic(err)
+	}
+	return hash
+})
 
 // LoginRequest represents login request body
 type LoginRequest struct {
@@ -101,6 +115,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	var user models.User
 	if err := database.DB.Where("username = ?", username).First(&user).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			// Not a 401: a database outage must not count towards the login lockout.
+			slog.Error("login: load user", "err", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
+			return
+		}
+		// The result is irrelevant: this only spends the same time as a real check.
+		_ = bcrypt.CompareHashAndPassword(dummyPasswordHash(), []byte(password)) //nolint:errcheck // timing only
 		c.JSON(http.StatusUnauthorized, gin.H{"ok": false})
 		return
 	}
@@ -110,13 +132,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	token, err := auth.CreateToken(user)
+	token, expires, err := auth.CreateToken(user)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
 		return
 	}
 
-	setSessionCookie(c, token)
+	auth.SetSessionCookie(c, token, expires)
 
 	c.JSON(http.StatusOK, gin.H{
 		"ok":                 true,
@@ -127,44 +149,23 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 // Logout godoc
 // @Summary      Logout
-// @Description  Clear the session cookie
+// @Description  End every session of the current user and clear the session cookie
 // @Tags         auth
 // @Produce      json
 // @Success      200  {object}  LoginResponse
 // @Router       /logout [post]
 func (h *AuthHandler) Logout(c *gin.Context) {
-	clearSessionCookie(c)
+	if user, ok := c.Value("user").(*models.User); ok && user != nil {
+		// Bumping the version revokes this token and any copy of it.
+		if err := database.DB.Model(&models.User{}).Where("id = ?", user.ID).
+			Update("session_version", gorm.Expr("session_version + 1")).Error; err != nil {
+			slog.Error("logout: revoke sessions", "err", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
+			return
+		}
+	}
+	auth.ClearSessionCookie(c)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
-}
-
-func setSessionCookie(c *gin.Context, token string) {
-	cfg := config.Current()
-	c.SetSameSite(cfg.Auth.Cookie.SameSite)
-	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     auth.SessionCookieName,
-		Value:    token,
-		Path:     "/api",
-		Domain:   cfg.Auth.Cookie.Domain,
-		MaxAge:   int(cfg.Auth.SessionTTL.Seconds()),
-		Secure:   cfg.Auth.Cookie.Secure,
-		HttpOnly: cfg.Auth.Cookie.HTTPOnly,
-		SameSite: cfg.Auth.Cookie.SameSite,
-	})
-}
-
-func clearSessionCookie(c *gin.Context) {
-	cfg := config.Current()
-	c.SetSameSite(cfg.Auth.Cookie.SameSite)
-	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     auth.SessionCookieName,
-		Value:    "",
-		Path:     "/api",
-		Domain:   cfg.Auth.Cookie.Domain,
-		MaxAge:   -1,
-		Secure:   cfg.Auth.Cookie.Secure,
-		HttpOnly: cfg.Auth.Cookie.HTTPOnly,
-		SameSite: cfg.Auth.Cookie.SameSite,
-	})
 }
 
 // ChangePassword godoc
@@ -231,9 +232,12 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	updates := map[string]interface{}{
+	// Bumping the session version signs out every other session, including any
+	// opened with the old password; this client gets a fresh token below.
+	updates := map[string]any{
 		"password_hash":        string(hashed),
 		"must_change_password": false,
+		"session_version":      user.SessionVersion + 1,
 	}
 	if err := database.DB.Model(&models.User{}).Where("id = ?", user.ID).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
@@ -241,12 +245,13 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	}
 
 	user.MustChangePassword = false
-	token, err := auth.CreateToken(user)
+	user.SessionVersion++
+	token, expires, err := auth.CreateToken(user)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
 		return
 	}
-	setSessionCookie(c, token)
+	auth.SetSessionCookie(c, token, expires)
 
 	c.JSON(http.StatusOK, gin.H{
 		"ok":                 true,

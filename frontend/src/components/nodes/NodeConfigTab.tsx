@@ -139,8 +139,10 @@ export const NodeConfigTab = ({
     }
 
     setIsConfigLoading(true);
+    // POST: generating a config creates or rotates the peer on the node.
     const res = await apiFetch(
       `/api/nodes/${encodeURIComponent(nodeId)}/config?${query.toString()}`,
+      { method: 'POST' },
     );
     if (!res.ok) {
       const rl = rateLimitMessage(res);

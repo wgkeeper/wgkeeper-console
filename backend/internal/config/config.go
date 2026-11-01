@@ -152,6 +152,11 @@ func Load() (Config, error) {
 	if len(cfg.Auth.Cookie.Domain) > 0 && strings.Contains(cfg.Auth.Cookie.Domain, "://") {
 		return Config{}, fmt.Errorf("COOKIE_DOMAIN must be a hostname, not a URL")
 	}
+	// Browsers reject SameSite=None cookies without Secure, and without SameSite
+	// the session cookie would also ride along on cross-site requests.
+	if cfg.Auth.Cookie.SameSite == http.SameSiteNoneMode && !cfg.Auth.Cookie.Secure {
+		return Config{}, fmt.Errorf("COOKIE_SAMESITE=none requires COOKIE_SECURE=true")
+	}
 
 	if err := validateDatabaseURL(cfg.Database.URL); err != nil {
 		return Config{}, err

@@ -13,6 +13,11 @@ import (
 
 const encryptedPrefix = "enc:"
 
+// IsEncrypted reports whether value was produced by Encrypt.
+func IsEncrypted(value string) bool {
+	return strings.HasPrefix(value, encryptedPrefix)
+}
+
 // Encrypt encrypts plaintext with AES-256-GCM using a random nonce.
 // The returned string has the form "enc:<hex(nonce || ciphertext)>".
 // key must be exactly 32 bytes.

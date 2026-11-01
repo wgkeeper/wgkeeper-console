@@ -48,6 +48,12 @@ func Init() error {
 		return fmt.Errorf("database: widen api_key: %w", err)
 	}
 
+	if n, err := models.EncryptLegacySecrets(DB); err != nil {
+		return fmt.Errorf("database: encrypt api keys: %w", err)
+	} else if n > 0 {
+		slog.Info("database: encrypted plaintext node API keys", "count", n)
+	}
+
 	cfg := config.Current()
 	if err := models.EnsureDefaultAdmin(
 		DB,
@@ -105,7 +111,8 @@ func sqliteDSN(dbURL string) (string, error) {
 	dsn := strings.TrimPrefix(dbURL, "file:")
 	dir := filepath.Dir(dsn)
 	if dir != "." && dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		// The database holds password hashes and node API keys; keep it private.
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return "", fmt.Errorf("create dir %q: %w", dir, err)
 		}
 	}

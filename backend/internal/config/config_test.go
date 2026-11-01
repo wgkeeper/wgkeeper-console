@@ -113,3 +113,18 @@ func BenchmarkLoad(b *testing.B) {
 		}
 	}
 }
+
+func TestLoadRejectsSameSiteNoneWithoutSecure(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("COOKIE_SAMESITE", "none")
+	t.Setenv("COOKIE_SECURE", "false")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected an error for SameSite=None without Secure")
+	}
+
+	t.Setenv("COOKIE_SECURE", "true")
+	if _, err := Load(); err != nil {
+		t.Fatalf("SameSite=None with Secure: %v", err)
+	}
+}
