@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"errors"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
@@ -106,13 +108,18 @@ func (h *DashboardHandler) GetNodes(c *gin.Context) {
 		limit = 100
 	}
 
-	nodes, total, err := h.service.GetNodes(page, limit)
+	nodes, total, err := h.service.GetNodes(c.Request.Context(), page, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
 		return
 	}
 
-	latestRelease, _ := h.service.GetLatestNodeRelease()
+	// The release check is informational: without it the list just shows no
+	// update hints.
+	latestRelease, err := h.service.GetLatestNodeRelease(c.Request.Context())
+	if err != nil {
+		slog.Debug("latest node release unavailable", "err", err)
+	}
 	var latestVersion *string
 	var latestVersionURL *string
 	if latestRelease != nil {
@@ -136,10 +143,7 @@ func (h *DashboardHandler) GetNodes(c *gin.Context) {
 		}
 	}
 
-	totalPages := int(math.Ceil(float64(total) / float64(limit)))
-	if totalPages < 1 {
-		totalPages = 1
-	}
+	totalPages := max(int(math.Ceil(float64(total)/float64(limit))), 1)
 
 	c.JSON(http.StatusOK, gin.H{
 		"nodes":      result,
@@ -179,17 +183,17 @@ func (h *DashboardHandler) CreateNode(c *gin.Context) {
 		return
 	}
 
-	existingNode, err := h.service.FindNodeByAddress(address)
-	if err != nil {
+	switch _, err := h.service.FindNodeByAddress(c.Request.Context(), address); {
+	case err == nil:
+		c.JSON(http.StatusConflict, gin.H{"ok": false, "error": "node_exists"})
+		return
+	case !errors.Is(err, services.ErrNodeNotFound):
+		slog.Error("create node: look up address", "err", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
 		return
 	}
-	if existingNode != nil {
-		c.JSON(http.StatusConflict, gin.H{"ok": false, "error": "node_exists"})
-		return
-	}
 
-	node, err := h.service.CreateNode(struct {
+	node, err := h.service.CreateNode(c.Request.Context(), struct {
 		Address string
 		APIKey  string
 	}{
@@ -232,7 +236,7 @@ func (h *DashboardHandler) CheckNode(c *gin.Context) {
 		return
 	}
 
-	health, err := h.service.CheckNode(address, apiKey)
+	health, err := h.service.CheckNode(c.Request.Context(), address, apiKey)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": "service_error"})
 		return
@@ -268,7 +272,7 @@ func (h *DashboardHandler) GetNodeStats(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.service.GetNodeStats(id)
+	stats, err := h.service.GetNodeStats(c.Request.Context(), id)
 	if err != nil || stats == nil || stats.Data == nil {
 		// Always return 502 for upstream failures — our backend's status code
 		// stays meaningful (502 = upstream failed). The upstream's actual code
@@ -321,8 +325,8 @@ func (h *DashboardHandler) GetNodeConfig(c *gin.Context) {
 
 	var dns []string
 	if dnsParam := c.Query("dns"); dnsParam != "" {
-		parts := strings.Split(dnsParam, ",")
-		for _, part := range parts {
+		parts := strings.SplitSeq(dnsParam, ",")
+		for part := range parts {
 			trimmed := strings.TrimSpace(part)
 			if trimmed == "" {
 				continue
@@ -356,7 +360,7 @@ func (h *DashboardHandler) GetNodeConfig(c *gin.Context) {
 		}
 	}
 
-	config, err := h.service.GetNodeConfig(id, peerID, dns, expiresAt, addressFamilies)
+	config, err := h.service.GetNodeConfig(c.Request.Context(), id, peerID, dns, expiresAt, addressFamilies)
 	if err != nil || config == nil || config.Data == nil {
 		// Always 502 for upstream failures — upstream's actual code stays in
 		// the response body for diagnostics.
@@ -378,7 +382,7 @@ func (h *DashboardHandler) GetNodeConfig(c *gin.Context) {
 			statusPtr = config.StatusCode
 			endpointPtr = config.Endpoint
 			if config.ErrorData != nil {
-				if errMap, ok := config.ErrorData.(map[string]interface{}); ok {
+				if errMap, ok := config.ErrorData.(map[string]any); ok {
 					if code, ok := errMap["code"].(string); ok {
 						errorCode = code
 					}
@@ -444,7 +448,7 @@ func (h *DashboardHandler) GetNodePeers(c *gin.Context) {
 		limit = 500
 	}
 
-	result, err := h.service.GetNodePeers(id, offset, limit)
+	result, err := h.service.GetNodePeers(c.Request.Context(), id, offset, limit)
 	if err != nil || result == nil {
 		c.JSON(http.StatusBadGateway, gin.H{"ok": false, "error": "peers_unavailable"})
 		return
@@ -473,7 +477,7 @@ func (h *DashboardHandler) GetNodePeerDetail(c *gin.Context) {
 		return
 	}
 
-	peer, err := h.service.GetNodePeerDetail(id, peerID)
+	peer, err := h.service.GetNodePeerDetail(c.Request.Context(), id, peerID)
 	if err != nil || peer == nil {
 		c.JSON(http.StatusNotFound, gin.H{"ok": false, "error": "peer_not_found"})
 		return
@@ -502,7 +506,7 @@ func (h *DashboardHandler) DeletePeer(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.DeletePeer(id, peerID)
+	result, err := h.service.DeletePeer(c.Request.Context(), id, peerID)
 	if err != nil || result == nil {
 		c.JSON(http.StatusBadGateway, gin.H{"ok": false, "error": "peer_delete_failed"})
 		return
@@ -543,7 +547,7 @@ func (h *DashboardHandler) DeleteNode(c *gin.Context) {
 		return
 	}
 
-	deleted, err := h.service.DeleteNode(id)
+	deleted, err := h.service.DeleteNode(c.Request.Context(), id)
 	if err != nil || deleted == nil {
 		c.JSON(http.StatusNotFound, gin.H{"ok": false, "error": "node_not_found"})
 		return
@@ -562,7 +566,7 @@ func (h *DashboardHandler) DeleteNode(c *gin.Context) {
 // @Failure      401  {object}  map[string]interface{}  "Unauthorized"
 // @Router       /nodes/refresh [post]
 func (h *DashboardHandler) RefreshNodes(c *gin.Context) {
-	if err := h.service.RefreshStatuses(); err != nil {
+	if err := h.service.RefreshStatuses(c.Request.Context()); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
 		return
 	}

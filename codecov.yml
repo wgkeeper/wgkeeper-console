@@ -1,0 +1,19 @@
+# Project coverage may not drop by more than 1% against the base branch.
+# Patch coverage is reported but doesn't fail the check.
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        informational: true
+
+# The Go module is "wg-keeper-backend", not the repository path, so map its
+# import paths onto the backend/ directory.
+fixes:
+  - "wg-keeper-backend/::backend/"
+
+ignore:
+  - "backend/docs/**"

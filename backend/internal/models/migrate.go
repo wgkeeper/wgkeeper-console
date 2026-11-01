@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"gorm.io/gorm"
+
 	"wg-keeper-backend/internal/config"
 	"wg-keeper-backend/internal/crypto"
 )

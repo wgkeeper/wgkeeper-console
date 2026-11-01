@@ -16,7 +16,7 @@ You need:
 
 ```bash
 cd frontend && pnpm install
-lefthook install   # pre-commit: format, lint, types, go vet, golangci-lint; pre-push: builds and tests
+lefthook install   # pre-commit: format, lint, types, gofmt, go vet; pre-push: builds, tests, golangci-lint, govulncheck, go mod tidy
 ```
 
 Run it locally:
@@ -46,10 +46,24 @@ Backend:
 
 ```bash
 cd backend
+go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g cmd/server/main.go -o ./docs   # once; docs/ is generated
 go vet ./...
-go test ./...
+go test -race ./...
 golangci-lint run
-go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+govulncheck ./...
+go mod tidy -diff
+```
+
+`go test` runs the fuzz seed corpus too. CI also fuzzes every `Fuzz*` target for 15 seconds; to dig into one locally:
+
+```bash
+go test -run='^$' -fuzz=FuzzVerifyToken -fuzztime=1m ./internal/auth/
+```
+
+Benchmarks for `internal/auth`, `internal/middleware`, `internal/models` and `internal/services` run on every pull request, and the comparison with `main` is posted as a comment:
+
+```bash
+go test -bench=. -benchmem -run='^$' ./internal/auth/ ./internal/middleware/ ./internal/models/ ./internal/services/
 ```
 
 ## Pull requests

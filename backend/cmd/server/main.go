@@ -208,9 +208,9 @@ func main() {
 	<-sigCh
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
-	defer shutdownCancel()
-
-	if err := server.Shutdown(shutdownCtx); err != nil {
+	err = server.Shutdown(shutdownCtx)
+	shutdownCancel()
+	if err != nil {
 		slog.Error("failed to shut down server", "err", err)
 		os.Exit(1)
 	}

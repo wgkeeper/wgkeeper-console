@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
+
 	"wg-keeper-backend/internal/auth"
 	"wg-keeper-backend/internal/config"
 	"wg-keeper-backend/internal/database"
@@ -91,7 +92,7 @@ func TestChangePasswordRevokesOtherSessions(t *testing.T) {
 	stolen := loginToken(t, r)
 
 	req := newJSONRequest(t, http.MethodPost, "/api/change-password", ChangePasswordRequest{
-		CurrentPassword: ptr("correct-horse"), NewPassword: "battery-staple",
+		CurrentPassword: new("correct-horse"), NewPassword: "battery-staple",
 	})
 	rec := call(r, req, current)
 	if rec.Code != http.StatusOK {

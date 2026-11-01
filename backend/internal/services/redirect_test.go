@@ -24,8 +24,8 @@ func TestNodeRequestsDoNotFollowRedirects(t *testing.T) {
 
 	// The calls may fail; all that matters is where the key went.
 	s := NewDashboardService()
-	_, _ = s.fetchStatsData(node.URL, "node-api-key")
-	_, _ = s.CheckNode(node.URL, "node-api-key")
+	_, _ = s.fetchStatsData(t.Context(), node.URL, "node-api-key")
+	_, _ = s.CheckNode(t.Context(), node.URL, "node-api-key")
 
 	if v, _ := leaked.Load().(string); v != "" {
 		t.Fatalf("the API key was sent to the redirect target: %q", v)

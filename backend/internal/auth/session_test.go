@@ -14,7 +14,7 @@ import (
 
 const testSecretKey = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
 
-func loadTestConfig(t *testing.T, secret string) {
+func loadTestConfig(t testing.TB, secret string) {
 	t.Helper()
 	t.Setenv("APP_ENV", "test")
 	t.Setenv("SECRET_KEY", secret)
@@ -103,6 +103,10 @@ func TestVerifyTokenRejects(t *testing.T) {
 			}
 		})
 	}
+}
+
+func loadedSecret() []byte {
+	return config.Current().Auth.SessionSecret
 }
 
 func signedRaw(payload string) string {

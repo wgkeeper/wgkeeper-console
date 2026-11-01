@@ -1,3 +1,5 @@
+# Fast checks on commit, the full CI set on push.
+# Go tools are looked up in PATH (e.g. Homebrew) and then in $(go env GOPATH)/bin (go install).
 pre-commit:
   parallel: true
   commands:
@@ -10,15 +12,13 @@ pre-commit:
     frontend-types:
       glob: "frontend/src/**/*.{ts,tsx}"
       run: cd frontend && pnpm exec tsc -b
+    backend-format:
+      root: "backend/"
+      glob: "*.go"
+      run: gofmt -l {staged_files} | grep . && echo "run gofmt" && exit 1 || exit 0
     backend-vet:
       glob: "backend/**/*.go"
       run: cd backend && go vet ./...
-    backend-build:
-      glob: "backend/**/*.go"
-      run: cd backend && go build -o /dev/null ./...
-    backend-lint:
-      glob: "backend/**/*.go"
-      run: cd backend && golangci-lint run ./...
 
 pre-push:
   parallel: true
@@ -29,9 +29,15 @@ pre-push:
     frontend-tests:
       glob: "frontend/src/**/*.{ts,tsx}"
       run: cd frontend && pnpm test
-    backend-build:
+    backend-lint:
       glob: "backend/**/*.go"
-      run: cd backend && go build -o /dev/null ./...
+      run: cd backend && PATH="$PATH:$(go env GOPATH)/bin" golangci-lint run ./...
     backend-tests:
       glob: "backend/**/*.go"
-      run: cd backend && go test ./...
+      run: cd backend && go test -race ./...
+    backend-govulncheck:
+      glob: "backend/**/*.go"
+      run: cd backend && PATH="$PATH:$(go env GOPATH)/bin" govulncheck ./...
+    backend-mod-tidy:
+      glob: "backend/{go.mod,go.sum,**/*.go}"
+      run: cd backend && go mod tidy -diff

@@ -8,11 +8,17 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+
 	"wg-keeper-backend/internal/config"
 	"wg-keeper-backend/internal/crypto"
 )
 
 func loadSecretConfig(t *testing.T, secretKey string) {
+	t.Helper()
+	loadSecretConfigTB(t, secretKey)
+}
+
+func loadSecretConfigTB(t testing.TB, secretKey string) {
 	t.Helper()
 	t.Setenv("APP_ENV", "test")
 	t.Setenv("SECRET_KEY", secretKey)

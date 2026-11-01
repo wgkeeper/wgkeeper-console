@@ -1,0 +1,122 @@
+name: Benchmark
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+# Cancel stale runs when new commits are pushed to the PR.
+concurrency:
+  group: benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark-compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@v0.0.0-20261009192801-be2c69fb417e
+
+      - name: Run benchmarks on base branch
+        run: |
+          git checkout ${{ github.event.pull_request.base.sha }}
+          cd backend
+          go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g cmd/server/main.go -o ./docs >/dev/null
+          go test \
+            -bench=. \
+            -benchmem \
+            -benchtime=1s \
+            -count=6 \
+            -run='^$' \
+            ./internal/auth/ ./internal/middleware/ ./internal/models/ ./internal/services/ \
+            2>/dev/null > ../base.txt || true
+
+      - name: Run benchmarks on PR branch
+        run: |
+          git checkout ${{ github.sha }}
+          cd backend
+          go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g cmd/server/main.go -o ./docs >/dev/null
+          go test \
+            -bench=. \
+            -benchmem \
+            -benchtime=1s \
+            -count=6 \
+            -run='^$' \
+            ./internal/auth/ ./internal/middleware/ ./internal/models/ ./internal/services/ \
+            2>/dev/null | tee ../pr.txt
+
+      - name: Upload benchmark outputs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-compare-pr${{ github.event.pull_request.number }}
+          path: |
+            base.txt
+            pr.txt
+          retention-days: 30
+
+      - name: Compare with benchstat
+        id: compare
+        run: |
+          OUTPUT=$(benchstat base.txt pr.txt 2>&1)
+          echo "result<<BENCHEOF" >> $GITHUB_OUTPUT
+          echo "$OUTPUT" >> $GITHUB_OUTPUT
+          echo "BENCHEOF" >> $GITHUB_OUTPUT
+
+      - name: Post PR comment
+        if: ${{ github.event.pull_request.head.repo.fork == false }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          BENCH_RESULT: ${{ steps.compare.outputs.result }}
+        with:
+          script: |
+            const marker = '<!-- benchmark-compare -->';
+            const result = process.env.BENCH_RESULT;
+            const body = [
+              marker,
+              '## Benchmark comparison (base → PR)',
+              '',
+              '```',
+              result,
+              '```',
+              '',
+              '_Measured with [benchstat](https://pkg.go.dev/golang.org/x/perf/cmd/benchstat), 6 samples per benchmark._',
+            ].join('\n');
+
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.data.find(c => c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

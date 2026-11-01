@@ -11,6 +11,11 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels the run for the previous one; main and tags always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   SERVICE_NAME: console
   REGISTRY: ghcr.io
@@ -19,6 +24,7 @@ jobs:
   frontend:
     name: Frontend Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -58,8 +64,12 @@ jobs:
   backend:
     name: Backend Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -71,21 +81,46 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
 
+      # The docs package is generated (and git-ignored), so everything below needs it.
       - name: Generate Swagger docs
-        working-directory: backend
         run: go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g cmd/server/main.go -o ./docs
 
+      - name: Check go.mod and go.sum are tidy
+        run: go mod tidy -diff
+
       - name: Run go vet
-        working-directory: backend
         run: go vet ./...
 
       - name: Run Go tests
-        working-directory: backend
-        run: go test ./...
+        run: go test -race -coverprofile=coverage.txt ./...
+
+      # go test above already runs the seed corpus; this explores past it.
+      # -fuzz takes one target at a time, so loop over each package's targets.
+      - name: Run fuzz tests
+        run: |
+          for pkg in $(go list ./...); do
+            for target in $(go test -list '^Fuzz' "$pkg" | grep '^Fuzz'); do
+              go test -run '^$' -fuzz "^${target}\$" -fuzztime=15s "$pkg"
+            done
+          done
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: backend/coverage.txt
+          flags: backend
+          fail_ci_if_error: false
 
       - name: Run govulncheck
-        working-directory: backend
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+        uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1.1.0
+        with:
+          repo-checkout: false
+          # Scan against the Go version we ship (backend/go.mod), not latest stable.
+          go-version-input: ""
+          go-version-file: backend/go.mod
+          work-dir: backend
+          go-package: ./...
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
@@ -101,6 +136,7 @@ jobs:
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
