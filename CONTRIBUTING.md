@@ -66,6 +66,23 @@ Benchmarks for `internal/auth`, `internal/middleware`, `internal/models` and `in
 go test -bench=. -benchmem -run='^$' ./internal/auth/ ./internal/middleware/ ./internal/models/ ./internal/services/
 ```
 
+The PostgreSQL integration test needs a running server:
+
+```bash
+docker run -d --name wgk-pg -e POSTGRES_USER=console -e POSTGRES_PASSWORD=console -e POSTGRES_DB=console -p 5432:5432 postgres:18-alpine
+WGKEEPER_TEST_POSTGRES_URL="postgres://console:console@127.0.0.1:5432/console?sslmode=disable" \
+  go test -tags=integration -run TestPostgres ./internal/database/
+```
+
+The end-to-end test runs the console image against a real wgkeeper-node: it adds the node through the console API, generates a client config and checks that a WireGuard client completes a handshake with it, then goes through peers, refresh and logout. It needs Docker on a kernel with WireGuard (Linux 5.6+ or Docker Desktop), `curl` and `jq`:
+
+```bash
+E2E_BUILD=1 test/e2e/run.sh   # build the image, then test it
+E2E_KEEP=1 test/e2e/run.sh    # keep the wgkc-e2e-* containers to debug a failure
+```
+
+Run it when you touch the Dockerfile, startup, static file serving or how the console talks to nodes. CI runs it on every pull request, and the image is only published if it passes. The node version it tests against is pinned in `test/e2e/run.sh`; bump it with each node release.
+
 ## Pull requests
 
 1. Branch from `main` (`feat/…`, `fix/…`, `docs/…`).
@@ -74,7 +91,7 @@ go test -bench=. -benchmem -run='^$' ./internal/auth/ ./internal/middleware/ ./i
 4. For UI changes, add a screenshot or a short recording to the pull request.
 5. Update the README when you change configuration, deployment or the API.
 
-`main` only accepts pull requests, and `Frontend Checks` and `Backend Checks` must pass before merging.
+`main` only accepts pull requests, and the CI checks must pass before merging.
 
 ## Releases (maintainers)
 

@@ -91,8 +91,10 @@ jobs:
       - name: Run go vet
         run: go vet ./...
 
+      # -coverpkg credits code exercised through other packages (cookies via the
+      # handler tests, handlers via the router flow test).
       - name: Run Go tests
-        run: go test -race -coverprofile=coverage.txt ./...
+        run: go test -race -coverpkg=./internal/... -coverprofile=coverage.txt ./...
 
       # go test above already runs the seed corpus; this explores past it.
       # -fuzz takes one target at a time, so loop over each package's targets.
@@ -129,9 +131,77 @@ jobs:
           version: v2.15.0
           working-directory: backend
 
+  postgres:
+    name: Postgres
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5
+        env:
+          POSTGRES_USER: console
+          POSTGRES_PASSWORD: console
+          POSTGRES_DB: console
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U console"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Generate Swagger docs
+        run: go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g cmd/server/main.go -o ./docs
+
+      # Migrations, the api_key column and encrypted keys against a real server.
+      - name: Run PostgreSQL integration tests
+        env:
+          WGKEEPER_TEST_POSTGRES_URL: postgres://console:console@127.0.0.1:5432/console?sslmode=disable
+        run: go test -race -tags=integration -run TestPostgres ./internal/database/
+
+  # Runs the image against a real wgkeeper-node: the console adds the node,
+  # generates a config, and a WireGuard client must handshake with it
+  # (see test/e2e/run.sh).
+  e2e:
+    name: End-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build image
+        run: docker build -t wgkeeper-console:e2e .
+
+      - name: Check shell scripts
+        run: shellcheck test/e2e/run.sh
+
+      - name: Run end-to-end test
+        env:
+          E2E_IMAGE: wgkeeper-console:e2e
+        run: test/e2e/run.sh
+
   build_push:
     name: Build & Push Image
-    needs: [frontend, backend]
+    needs: [frontend, backend, postgres, e2e]
     if: >
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
