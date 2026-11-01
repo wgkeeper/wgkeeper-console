@@ -20,230 +20,68 @@
 
 ---
 
-wgkeeper console is the admin panel for wgkeeper. It gives you one place to manage your WireGuard infrastructure.
+wgkeeper console is a web admin panel for a fleet of [wgkeeper nodes](https://github.com/wgkeeper/wgkeeper-node). Add your nodes once, then create, inspect and revoke WireGuard peers on any of them from one place, and hand out ready-to-use client configs.
 
----
+- One view of every node: online status, version, and a hint when a node is behind the latest release.
+- Peers per node: who is active, last handshake, traffic, expiry.
+- Client configs in one click, with your DNS servers, an expiry date and the address families you want; the private key is shown once and never stored.
+- Revoke a peer and it's gone from the node immediately.
+- Node API keys are encrypted at rest; sessions can be revoked; logins are rate limited. See [Security](docs/security.md).
+- SQLite out of the box, PostgreSQL when you want it.
+- Health checks, request IDs in every log line, and optional Prometheus metrics.
 
-## Features
+## How it works
 
-- 🖥 Manage multiple WireGuard nodes from one UI  
-- 📊 Real-time node and peer status  
-- 🔐 Built-in access control for the admin console  
-- 📦 Download ready-to-use WireGuard configs  
-- 🐳 Simple deployment with Docker   
+```mermaid
+flowchart LR
+  Admin[Admin, browser] -->|HTTPS| Console
 
----
+  subgraph Console[wgkeeper console]
+    UI[Web UI + API]
+    DB[(SQLite / PostgreSQL)]
+  end
+
+  Console -->|node REST API| N1[wgkeeper node]
+  Console -->|node REST API| N2[wgkeeper node]
+  Clients[VPN clients] -->|WireGuard| N1
+  Clients -->|WireGuard| N2
+```
+
+The console stores nodes and their API keys (encrypted) and talks to each node over its REST API. Peers live on the nodes, not in the console: if the console is down, the VPN keeps working.
 
 ## Quick start
 
-### Basic Docker Compose
-
-Run wgkeeper console with a published image:
-
-Generate a unique `SECRET_KEY` first:
+On a Linux server:
 
 ```bash
-openssl rand -hex 32
+curl -fsSL https://raw.githubusercontent.com/wgkeeper/wgkeeper-console/main/scripts/install.sh | sudo bash
 ```
 
-```yaml
-services:
-  wgkeeper-console:
-    image: ghcr.io/wgkeeper/console
-    container_name: wgkeeper-console
-    ports:
-      - "8000:8000"
-    environment:
-      PORT: 8000
-      DATABASE_URL: file:/app/data/wgkeeper-console.db
-      SECRET_KEY: paste-generated-64-char-hex-key-here
-      BOOTSTRAP_ADMIN_PASSWORD: change-me-now
-      COOKIE_SECURE: "false"
-    volumes:
-      - wgkeeper-console-data:/app/data
-    restart: unless-stopped
+The [install script](scripts/install.sh) installs Docker if it's missing, puts the console into `/opt/wgkeeper-console` with a new secret key and admin password, starts it and prints how to log in. Add `-s -- --domain console.example.com` after `bash` to put Caddy with an automatic HTTPS certificate in front of it. Read the script first if you prefer; [Deployment](docs/deployment.md) also covers installing by hand, nginx, PostgreSQL and backups.
 
-volumes:
-  wgkeeper-console-data:
-```
-
-Save it as `compose.yaml` and start the app:
+Without `--domain` the console listens on `127.0.0.1:8000` of the server only; open it through an SSH tunnel:
 
 ```bash
-docker compose up -d
+ssh -L 8000:127.0.0.1:8000 your-server   # then open http://127.0.0.1:8000
 ```
 
-Then open `http://localhost:8000`.
+Log in as `admin` with the printed password, set a new one, and add a node with its address and API key.
 
-`SECRET_KEY` should be generated once and kept stable between restarts.
-`COOKIE_SECURE=false` is required for plain HTTP. Use secure cookies for HTTPS deployments.
+## Documentation
 
-Default bootstrap login:
+- [Configuration](docs/configuration.md): requirements and every environment variable.
+- [Deployment](docs/deployment.md): install script and updates, Docker Compose, reverse proxy (Caddy and nginx examples), PostgreSQL, backups, building from source.
+- [Security](docs/security.md): what the console protects and how.
+- [Metrics and logs](docs/metrics.md): health checks, request IDs, Prometheus metrics and alerting rules.
 
-- username: `admin`
-- password: value of `BOOTSTRAP_ADMIN_PASSWORD`
-
-The first login requires a password change.
-
-### Docker Compose with Caddy
-
-If you want wgkeeper console behind Caddy with automatic HTTPS, use this setup:
-
-`compose.yaml`:
-
-```yaml
-services:
-  wgkeeper-console:
-    image: ghcr.io/wgkeeper/console
-    container_name: wgkeeper-console
-    environment:
-      PORT: 8000
-      DATABASE_URL: file:/app/data/wgkeeper-console.db
-      SECRET_KEY: paste-generated-64-char-hex-key-here
-      BOOTSTRAP_ADMIN_PASSWORD: change-me-now
-      COOKIE_SECURE: "true"
-      # Trust X-Forwarded-For from the Caddy container (default Docker bridge
-      # range). Without this every request looks like it comes from Caddy and
-      # the per-IP rate limit treats all users as one — see "Behind a reverse
-      # proxy" in Configuration.
-      TRUSTED_PROXIES: 172.16.0.0/12
-    volumes:
-      - wgkeeper-console-data:/app/data
-    restart: unless-stopped
-
-  caddy:
-    image: caddy:2
-    container_name: wgkeeper-console-caddy
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    depends_on:
-      - wgkeeper-console
-    restart: unless-stopped
-
-volumes:
-  wgkeeper-console-data:
-  caddy-data:
-  caddy-config:
-```
-
-`Caddyfile`:
-
-```caddy
-console.example.com {
-  reverse_proxy wgkeeper-console:8000
-}
-```
-
-Then start it with:
-
-```bash
-docker compose up -d
-```
-
-Replace `console.example.com` with your real domain pointed at the server. Caddy will provision HTTPS automatically.
-
-## Repository Docker setup
-
-This repository also includes a local [docker-compose.yml](./docker-compose.yml) with Caddy for project development and self-hosted builds.
-
-## Configuration
-
-Most users only need these variables:
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `SECRET_KEY` | none | Required secret for sessions and stored API keys |
-| `BOOTSTRAP_ADMIN_PASSWORD` | none | Initial admin password on first start |
-| `DATABASE_URL` | `file:/app/data/wgkeeper-console.db` | SQLite file or PostgreSQL connection URL |
-| `PORT` | `8000` | App port |
-| `COOKIE_SECURE` | `true` in production | Set to `false` only when serving over plain HTTP |
-
-Example `.env`:
-
-```env
-SECRET_KEY=replace-with-generated-64-char-hex-key
-BOOTSTRAP_ADMIN_PASSWORD=change-me-now
-DATABASE_URL=file:/app/data/wgkeeper-console.db
-PORT=8000
-COOKIE_SECURE=false
-```
-
-PostgreSQL is also supported:
-
-```env
-DATABASE_URL=postgres://user:password@postgres:5432/wgkeeper_console
-```
-
-A minimal template is available in [.env.example](./.env.example).
-
-Optional variables:
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `DOCS` | `false` | Enables Swagger UI |
-| `DEBUG` | `false` | Enables debug logging |
-| `TRUSTED_PROXIES` | empty | Comma-separated list of proxy IPs/CIDRs whose `X-Forwarded-For` should be trusted. Only needed when running behind a reverse proxy — see below. |
-| `LOG_FORMAT` | `text` | `json` for one JSON object per line (log collectors) |
-| `METRICS_PORT` | unset (off) | Port of the Prometheus `/metrics` endpoint — see below |
-| `METRICS_TOKEN` | required with `METRICS_PORT` | Bearer token for `/metrics`, at least 32 characters |
-
-Invalid values stop the console at startup with a list of what's wrong, instead of silently falling back to defaults.
-
-### Health checks and logs
-
-- `GET /healthz` answers `200` while the process is up; the Docker image uses it as its `HEALTHCHECK`.
-- `GET /readyz` answers `200` when the database is reachable and `503` when it isn't.
-- Every response carries an `X-Request-Id` header, and every log line written while handling that request has the same `request_id`, so a failed request in the browser leads straight to its log entries.
-
-### Metrics
-
-Set `METRICS_PORT` and `METRICS_TOKEN` to expose Prometheus metrics on a separate port (keep it off the public internet):
-
-```yaml
-scrape_configs:
-  - job_name: wgkeeper-console
-    authorization:
-      credentials: <METRICS_TOKEN>
-    static_configs:
-      - targets: ["console:9100"]
-```
-
-| Metric | Labels | What it shows |
-|--------|--------|---------------|
-| `wgkeeper_console_http_requests_total` | `method`, `path`, `status_class` | API traffic and error rates |
-| `wgkeeper_console_http_request_duration_seconds` | `method`, `path` | API latency |
-| `wgkeeper_console_node_requests_total` | `op`, `result` | Calls to nodes; alert on `error_unreachable` and `error_unauthorized` |
-| `wgkeeper_console_node_request_duration_seconds` | `op` | How fast nodes answer |
-| `wgkeeper_console_nodes` | `status` | Stored nodes by last known status |
-
-### Behind a reverse proxy
-
-By default the backend reads the client IP from the TCP connection (`RemoteAddr`) and ignores `X-Forwarded-For` from anyone — this is safe when wgkeeper console is exposed directly.
-
-If you put a reverse proxy in front (Caddy, nginx, Traefik, a load balancer), you must tell the backend which proxy IPs to trust, otherwise every request will look like it came from the proxy and the per-IP rate limit will treat all of your users as a single client — one busy user can lock everyone out.
-
-| Setup | `TRUSTED_PROXIES` |
-|-------|-------------------|
-| Caddy/nginx on the same host (loopback) | `127.0.0.1,::1` |
-| Proxy in another container on the same Docker network | `172.16.0.0/12` (covers default bridge ranges) or your specific subnet |
-| External load balancer with a known public IP | the LB's address, e.g. `203.0.113.10` |
-| Direct exposure, no proxy | leave unset |
-
-## API docs
-
-Set `DOCS=true` and start the backend to enable Swagger UI at `http://localhost:8000/docs/index.html`.
-
-More Swagger details live in [backend/SWAGGER.md](./backend/SWAGGER.md).
+To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks and the pull request flow. To report a vulnerability, see [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks and the pull request flow.
 
 ## License
 
-AGPL-3.0. See [LICENSE](./LICENSE).
+[AGPL-3.0](LICENSE).
+
+WireGuard® is a registered trademark of Jason A. Donenfeld.

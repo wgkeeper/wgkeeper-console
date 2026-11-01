@@ -1,0 +1,51 @@
+# Example Prometheus alerting rules for wgkeeper-console.
+# Loaded by examples/prometheus/prometheus.yml (rule_files). Tune the
+# thresholds and "for" durations to your fleet.
+
+groups:
+  - name: wgkeeper-console
+    rules:
+      - alert: WgkeeperConsoleDown
+        expr: up{job="wgkeeper-console"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "wgkeeper console {{ $labels.instance }} is not being scraped"
+          description: "The console is down, the metrics port is unreachable, or the bearer token is wrong."
+
+      - alert: WgkeeperConsoleNodesOffline
+        expr: wgkeeper_console_nodes{status="offline"} > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} wgkeeper node(s) offline for 15 minutes"
+          description: "The last status refresh found nodes that don't answer. Check them in the console."
+
+      - alert: WgkeeperConsoleNodeKeyRejected
+        expr: sum(rate(wgkeeper_console_node_requests_total{result="error_unauthorized"}[10m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A node rejects the API key stored in the console"
+          description: "A node's API key was rotated without updating the console. Requests to that node fail until it's fixed."
+
+      - alert: WgkeeperConsoleNodesUnreachable
+        expr: sum(rate(wgkeeper_console_node_requests_total{result="error_unreachable", op!="release_check"}[10m])) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Requests from the console to nodes are failing"
+          description: "Nodes don't answer or time out. Check node status and the network between the console and the nodes."
+
+      - alert: WgkeeperConsoleServerErrors
+        expr: sum(rate(wgkeeper_console_http_requests_total{status_class="5xx"}[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "wgkeeper console returns 5xx"
+          description: "Every failed request is logged with its request_id and the error."

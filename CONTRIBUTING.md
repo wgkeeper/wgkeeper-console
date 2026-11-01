@@ -22,10 +22,11 @@ lefthook install   # pre-commit: format, lint, types, gofmt, go vet; pre-push: b
 Run it locally:
 
 ```bash
-cp .env.example .env                       # set SECRET_KEY: openssl rand -hex 32
-cd backend && go run ./cmd/server          # API on :8000
-cd frontend && pnpm dev                    # UI with hot reload
+cd backend && APP_ENV=development BOOTSTRAP_ADMIN_PASSWORD=dev-password go run ./cmd/server   # API on :8000
+cd frontend && pnpm dev                                                                       # UI on :5173, proxies /api
 ```
+
+In development the console uses a temporary `SECRET_KEY` when none is set, so sessions end on every restart; set `SECRET_KEY` (`openssl rand -hex 32`) to keep them. Every variable is in [docs/configuration.md](docs/configuration.md).
 
 ## Checks
 
@@ -89,7 +90,7 @@ Run it when you touch the Dockerfile, startup, static file serving or how the co
 2. Keep a pull request to one change, with tests for new behavior and bug fixes.
 3. Title it in [Conventional Commits](https://www.conventionalcommits.org/) style: `feat(ui): add peer search`, `fix: refresh node status after restart`. The title becomes the squashed commit on `main`.
 4. For UI changes, add a screenshot or a short recording to the pull request.
-5. Update the README when you change configuration, deployment or the API.
+5. Update `docs/` when you change configuration, deployment or metrics.
 
 `main` only accepts pull requests, and the CI checks must pass before merging.
 

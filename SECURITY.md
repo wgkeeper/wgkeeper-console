@@ -10,7 +10,7 @@ Examples of what we consider a vulnerability:
 - cross-site scripting, CSRF or clickjacking in the web UI;
 - bypassing the per-IP rate limit on login and the API, including by spoofing `X-Forwarded-For` when `TRUSTED_PROXIES` is not set;
 - SQL injection or any way to change data you should not reach, on SQLite or PostgreSQL;
-- a shipped deployment file (`docker-compose.yml`, `Caddyfile`, the README examples) that exposes the app over plain HTTP or with insecure cookies beyond what it documents;
+- a shipped deployment file (`docker-compose.yml`, `examples/`, `scripts/install.sh`) that exposes the console over plain HTTP or with insecure cookies beyond what it documents;
 - a vulnerable dependency or base image that is reachable in the shipped binary, frontend bundle or container.
 
 ## Reporting a vulnerability
