@@ -23,19 +23,16 @@ import (
 	_ "wg-keeper-backend/docs"
 )
 
-// @title           wgkeeper console API
-// @version         1.0
-// @description     WireGuard management console API
-// @termsOfService  http://swagger.io/terms/
+// @title        wgkeeper console API
+// @version      2.0.0
+// @description  WireGuard management console API
 
-// @contact.name   API Support
-// @contact.url    http://www.swagger.io/support
-// @contact.email  support@swagger.io
+// @contact.name  wgkeeper console
+// @contact.url   https://github.com/wgkeeper/wgkeeper-console
 
-// @license.name  Apache 2.0
-// @license.url   http://www.apache.org/licenses/LICENSE-2.0.html
+// @license.name  AGPL-3.0
+// @license.url   https://www.gnu.org/licenses/agpl-3.0.html
 
-// @host      localhost:8000
 // @BasePath  /api
 
 // @securityDefinitions.apikey CookieAuth

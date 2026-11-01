@@ -47,13 +47,15 @@ Backend:
 
 ```bash
 cd backend
-go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g cmd/server/main.go -o ./docs   # once; docs/ is generated
+go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g cmd/server/main.go -o ./docs   # docs/ is generated; rerun after changing @ annotations
 go vet ./...
 go test -race ./...
 golangci-lint run
 govulncheck ./...
 go mod tidy -diff
 ```
+
+The API is described by swag annotations on the handlers in `internal/handlers`; run the console with `DOCS=true` to browse it at `/docs/index.html`.
 
 `go test` runs the fuzz seed corpus too. CI also fuzzes every `Fuzz*` target for 15 seconds; to dig into one locally:
 
