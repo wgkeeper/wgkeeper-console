@@ -151,6 +151,51 @@ func TestFindNodeHelpers(t *testing.T) {
 	}
 }
 
+func TestFleetSummaryCountsEveryNode(t *testing.T) {
+	db := openServiceTestDB(t)
+	svc := &DashboardService{db: db}
+	latest := &LatestNodeRelease{Version: "2.0.0"}
+	// The test database is shared, so count what other tests left behind first.
+	before, err := svc.FleetSummary(t.Context(), latest)
+	if err != nil {
+		t.Fatalf("FleetSummary() error = %v", err)
+	}
+
+	oldVersion, newVersion := "1.9.0", "2.0.0"
+	nodes := []models.Node{
+		{ID: "fleet-a", Address: "http://fleet-a:1", Status: models.NodeStatusOnline, Version: &newVersion},
+		{ID: "fleet-b", Address: "http://fleet-b:1", Status: models.NodeStatusOnline, Version: &oldVersion},
+		{ID: "fleet-c", Address: "http://fleet-c:1", Status: models.NodeStatusOffline, Version: &oldVersion},
+		{ID: "fleet-d", Address: "http://fleet-d:1", Status: models.NodeStatusOffline},
+	}
+	for i := range nodes {
+		nodes[i].Name = "wg-" + nodes[i].Address
+		nodes[i].APIKey = "secret"
+		if err := db.Create(&nodes[i]).Error; err != nil {
+			t.Fatalf("db.Create() error = %v", err)
+		}
+	}
+
+	got, err := svc.FleetSummary(t.Context(), latest)
+	if err != nil {
+		t.Fatalf("FleetSummary() error = %v", err)
+	}
+	added := FleetSummary{
+		Online:   got.Online - before.Online,
+		Offline:  got.Offline - before.Offline,
+		Outdated: got.Outdated - before.Outdated,
+	}
+	if want := (FleetSummary{Online: 2, Offline: 2, Outdated: 2}); added != want {
+		t.Fatalf("FleetSummary() grew by %+v, want %+v", added, want)
+	}
+
+	// Without a known release nothing counts as outdated.
+	got, err = svc.FleetSummary(t.Context(), nil)
+	if err != nil || got.Outdated != 0 {
+		t.Fatalf("FleetSummary(nil) = %+v, %v; want no outdated nodes", got, err)
+	}
+}
+
 func TestCheckNodeAndCreateNode(t *testing.T) {
 	restore := stubSharedRoundTripper(t, func(req *http.Request) (*http.Response, error) {
 		switch req.URL.Path {

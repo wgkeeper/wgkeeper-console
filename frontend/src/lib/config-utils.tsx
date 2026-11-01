@@ -12,9 +12,9 @@ const renderConfigLine = (line: string) => {
     const right = line.slice(eqIndex + 1);
     return (
       <span>
-        <span className="text-sky-700 dark:text-foreground/90">{left}</span>
+        <span className="text-foreground">{left}</span>
         <span className="text-muted-foreground">=</span>
-        <span className="text-foreground/65 dark:text-muted-foreground">{right}</span>
+        <span className="text-muted-foreground">{right}</span>
       </span>
     );
   }

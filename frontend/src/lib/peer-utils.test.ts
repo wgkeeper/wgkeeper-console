@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatBytes, formatDate, formatExpires, truncate, PAGE_SIZES } from './peer-utils';
+import { formatBytes, formatDate, formatRelative, plural, PAGE_SIZES } from './peer-utils';
 
 describe('formatBytes', () => {
   it('formats bytes', () => {
@@ -26,14 +26,16 @@ describe('formatBytes', () => {
 });
 
 describe('formatDate', () => {
-  it('returns em dash for null', () => {
+  it('returns em dash for a missing date', () => {
     expect(formatDate(null)).toBe('—');
+    expect(formatDate('')).toBe('—');
   });
 
-  it('formats a valid ISO string (checks date part only — time shifts with timezone)', () => {
-    // Use noon UTC so the date stays stable across all UTC-12..UTC+12 offsets
+  it('formats a valid ISO string in the runtime locale', () => {
+    // Noon UTC keeps the calendar day the same in every UTC-12..UTC+12 zone.
     const result = formatDate('2024-06-15T12:00:00.000Z');
-    expect(result).toMatch(/15\.06\.2024/u);
+    expect(result).toContain('2024');
+    expect(result).toContain('15');
   });
 
   it('returns the original string if date is invalid', () => {
@@ -41,43 +43,29 @@ describe('formatDate', () => {
   });
 });
 
-describe('formatExpires', () => {
-  it('returns "No limit" for null', () => {
-    expect(formatExpires(null)).toBe('No limit');
+describe('formatRelative', () => {
+  const now = Date.parse('2026-01-10T12:00:00Z');
+
+  it('says just now for the last few seconds', () => {
+    expect(formatRelative('2026-01-10T11:59:55Z', now)).toBe('just now');
   });
 
-  it('returns "No limit" for undefined', () => {
-    expect(formatExpires(null)).toBe('No limit');
+  it('picks the largest whole unit, past and future', () => {
+    expect(formatRelative('2026-01-10T11:57:00Z', now)).toBe('3 min. ago');
+    expect(formatRelative('2026-01-12T12:00:00Z', now)).toBe('in 2 days');
   });
 
-  it('returns "No limit" for empty string', () => {
-    expect(formatExpires('')).toBe('No limit');
-  });
-
-  it('formats a valid ISO string (checks date part only — time shifts with timezone)', () => {
-    // Use noon UTC so the date stays stable across all UTC-12..UTC+12 offsets
-    const result = formatExpires('2025-06-15T12:00:00.000Z');
-    expect(result).toMatch(/15\.06\.2025/u);
-  });
-
-  it('returns the original string if date is invalid', () => {
-    expect(formatExpires('bad-date')).toBe('bad-date');
+  it('handles missing and invalid dates', () => {
+    expect(formatRelative(null, now)).toBe('—');
+    expect(formatRelative('bad-date', now)).toBe('bad-date');
   });
 });
 
-describe('truncate', () => {
-  it('returns the string unchanged if within limit', () => {
-    expect(truncate('hello', 10)).toBe('hello');
-    expect(truncate('hello', 5)).toBe('hello');
-  });
-
-  it('truncates and appends ellipsis if over limit', () => {
-    expect(truncate('hello world', 5)).toBe('hello…');
-    expect(truncate('abcdef', 3)).toBe('abc…');
-  });
-
-  it('handles empty string', () => {
-    expect(truncate('', 5)).toBe('');
+describe('plural', () => {
+  it('uses the singular only for one', () => {
+    expect(plural(1, 'peer')).toBe('1 peer');
+    expect(plural(0, 'peer')).toBe('0 peers');
+    expect(plural(3, 'entry', 'entries')).toBe('3 entries');
   });
 });
 

@@ -202,7 +202,14 @@ func TestAPIFlow(t *testing.T) {
 	if resp := c.expect(http.MethodGet, "/api/nodes", "", http.StatusOK); !strings.Contains(resp, `"status":"online"`) || !strings.Contains(resp, `"total":1`) {
 		t.Fatalf("node list = %s", resp)
 	}
+	if resp := c.expect(http.MethodGet, "/api/nodes", "", http.StatusOK); !strings.Contains(resp, `"summary":{"online":1,"offline":0,"outdated":0}`) {
+		t.Fatalf("fleet summary missing from %s", resp)
+	}
 	nodePath := "/api/nodes/" + created.ID
+	if resp := c.expect(http.MethodGet, nodePath, "", http.StatusOK); !strings.Contains(resp, `"id":"`+created.ID+`"`) || !strings.Contains(resp, `"status":"online"`) {
+		t.Fatalf("get node = %s", resp)
+	}
+	c.expect(http.MethodGet, "/api/nodes/"+uuid.NewString(), "", http.StatusNotFound)
 	c.expect(http.MethodGet, nodePath+"/stats", "", http.StatusOK)
 
 	// Generate a config: the node is asked to create the peer.
@@ -248,6 +255,7 @@ func TestAPIFlow(t *testing.T) {
 	c.expect(http.MethodPost, "/api/nodes/refresh", "", http.StatusOK)
 	c.expect(http.MethodDelete, nodePath, "", http.StatusOK)
 	c.expect(http.MethodGet, nodePath+"/stats", "", http.StatusNotFound)
+	c.expect(http.MethodGet, nodePath, "", http.StatusNotFound)
 	c.expect(http.MethodPost, "/api/logout", "", http.StatusOK)
 	c.expect(http.MethodGet, "/api/me", "", http.StatusUnauthorized)
 }

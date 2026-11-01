@@ -4,6 +4,14 @@ export type NodeListResponse = {
   page: number;
   pageSize: number;
   totalPages: number;
+  /** Status counts across the whole fleet, not just this page. */
+  summary?: FleetSummary;
+};
+
+export type FleetSummary = {
+  online: number;
+  offline: number;
+  outdated: number;
 };
 
 export type NodeItem = {

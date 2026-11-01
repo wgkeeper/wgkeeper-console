@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
+import { WGKeeperLogo } from '@/components/WGKeeperLogo';
 
 type Props = { children: ReactNode };
 type State = { error: Error | null };
@@ -14,10 +15,8 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.error) {
       return (
-        <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-6 text-foreground">
-          <p className="text-xs tracking-[0.18em] text-muted-foreground uppercase">
-            wgkeeper console
-          </p>
+        <main className="flex min-h-svh flex-col items-center justify-center gap-4 bg-sidebar px-6 text-foreground">
+          <WGKeeperLogo className="mb-4 h-6 w-auto" />
           <h1 className="text-2xl font-semibold">Something went wrong</h1>
           <p className="max-w-sm text-center text-sm text-muted-foreground">
             {this.state.error.message}
@@ -25,7 +24,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <Button variant="outline" onClick={() => this.setState({ error: null })}>
             Try again
           </Button>
-        </div>
+        </main>
       );
     }
     return this.props.children;

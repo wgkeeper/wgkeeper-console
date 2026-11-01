@@ -88,6 +88,39 @@ func (s *DashboardService) GetNodes(ctx context.Context, page, limit int) ([]mod
 	return nodes, total, err
 }
 
+// FleetSummary holds status counts for every node in the console.
+type FleetSummary struct {
+	Online   int64
+	Offline  int64
+	Outdated int64
+}
+
+// FleetSummary counts online, offline and outdated nodes across the whole
+// fleet. Outdated depends on the latest release, so it is counted here rather
+// than in SQL; only the two columns it needs are loaded.
+func (s *DashboardService) FleetSummary(ctx context.Context, latest *LatestNodeRelease) (FleetSummary, error) {
+	var rows []struct {
+		Status  models.NodeStatus
+		Version *string
+	}
+	if err := s.db.WithContext(ctx).Model(&models.Node{}).Select("status", "version").Find(&rows).Error; err != nil {
+		return FleetSummary{}, err
+	}
+	var summary FleetSummary
+	for _, row := range rows {
+		switch row.Status {
+		case models.NodeStatusOnline:
+			summary.Online++
+		case models.NodeStatusOffline:
+			summary.Offline++
+		}
+		if IsVersionOutdated(row.Version, latest) {
+			summary.Outdated++
+		}
+	}
+	return summary, nil
+}
+
 func (s *DashboardService) FindNodeByID(ctx context.Context, id string) (*models.Node, error) {
 	return s.findNode(ctx, "id = ?", id)
 }

@@ -90,12 +90,53 @@ func parseNodeAddress(raw string) (string, bool) {
 	return strings.TrimRight(u.String(), "/"), true
 }
 
+// FleetSummary counts every node in the console, not just the current page.
+type FleetSummary struct {
+	Online   int64 `json:"online" example:"22"`
+	Offline  int64 `json:"offline" example:"1"`
+	Outdated int64 `json:"outdated" example:"1"`
+}
+
+// nodeJSON is the wire shape of a node, shared by the list and the single-node
+// endpoint.
+func nodeJSON(node models.Node, latestRelease *services.LatestNodeRelease) gin.H {
+	var latestVersion, latestVersionURL *string
+	if latestRelease != nil {
+		latestVersion = &latestRelease.Version
+		latestVersionURL = &latestRelease.URL
+	}
+	return gin.H{
+		"id":               node.ID,
+		"name":             node.Name,
+		"address":          node.Address,
+		"status":           node.Status,
+		"version":          node.Version,
+		"isOutdated":       services.IsVersionOutdated(node.Version, latestRelease),
+		"latestVersion":    latestVersion,
+		"latestVersionUrl": latestVersionURL,
+		"createdAt":        node.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		"updatedAt":        node.UpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+	}
+}
+
+// latestRelease returns the newest wgkeeper-node release, or nil. The check is
+// informational: without it nodes just show no update hints.
+func (h *DashboardHandler) latestRelease(c *gin.Context) *services.LatestNodeRelease {
+	release, err := h.service.GetLatestNodeRelease(c.Request.Context())
+	if err != nil {
+		slog.DebugContext(c.Request.Context(), "latest node release unavailable", "err", err)
+	}
+	return release
+}
+
 // GetNodes godoc
 // @Summary      Get all nodes
-// @Description  Retrieve list of all WireGuard nodes
+// @Description  Retrieve a page of WireGuard nodes and status counts for the whole fleet
 // @Tags         nodes
 // @Security     CookieAuth
-// @Success      200  {array}   NodeItem
+// @Param        page   query  int  false  "Page, from 1"
+// @Param        limit  query  int  false  "Nodes per page, up to 100"
+// @Success      200  {object}  map[string]interface{}  "nodes, total, page, pageSize, totalPages, summary"
 // @Failure      401  {object}  map[string]interface{}  "Unauthorized"
 // @Router       /nodes [get]
 func (h *DashboardHandler) GetNodes(c *gin.Context) {
@@ -118,33 +159,16 @@ func (h *DashboardHandler) GetNodes(c *gin.Context) {
 		return
 	}
 
-	// The release check is informational: without it the list just shows no
-	// update hints.
-	latestRelease, err := h.service.GetLatestNodeRelease(c.Request.Context())
+	latestRelease := h.latestRelease(c)
+	summary, err := h.service.FleetSummary(c.Request.Context(), latestRelease)
 	if err != nil {
-		slog.DebugContext(c.Request.Context(), "latest node release unavailable", "err", err)
-	}
-	var latestVersion *string
-	var latestVersionURL *string
-	if latestRelease != nil {
-		latestVersion = &latestRelease.Version
-		latestVersionURL = &latestRelease.URL
+		c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
+		return
 	}
 
 	result := make([]gin.H, len(nodes))
 	for i, node := range nodes {
-		result[i] = gin.H{
-			"id":               node.ID,
-			"name":             node.Name,
-			"address":          node.Address,
-			"status":           node.Status,
-			"version":          node.Version,
-			"isOutdated":       services.IsVersionOutdated(node.Version, latestRelease),
-			"latestVersion":    latestVersion,
-			"latestVersionUrl": latestVersionURL,
-			"createdAt":        node.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
-			"updatedAt":        node.UpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
-		}
+		result[i] = nodeJSON(node, latestRelease)
 	}
 
 	totalPages := max(int(math.Ceil(float64(total)/float64(limit))), 1)
@@ -155,7 +179,38 @@ func (h *DashboardHandler) GetNodes(c *gin.Context) {
 		"page":       page,
 		"pageSize":   limit,
 		"totalPages": totalPages,
+		"summary": FleetSummary{
+			Online:   summary.Online,
+			Offline:  summary.Offline,
+			Outdated: summary.Outdated,
+		},
 	})
+}
+
+// GetNode godoc
+// @Summary      Get a node
+// @Description  Retrieve one WireGuard node by ID
+// @Tags         nodes
+// @Security     CookieAuth
+// @Produce      json
+// @Param        id   path      string  true  "Node ID"
+// @Success      200  {object}  NodeItem
+// @Failure      404  {object}  map[string]interface{}  "Node not found"
+// @Router       /nodes/{id} [get]
+func (h *DashboardHandler) GetNode(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false})
+		return
+	}
+
+	node, err := h.service.FindNodeByID(c.Request.Context(), id)
+	if err != nil {
+		writeNodeError(c, err, "node_unavailable")
+		return
+	}
+
+	c.JSON(http.StatusOK, nodeJSON(*node, h.latestRelease(c)))
 }
 
 // CreateNode godoc

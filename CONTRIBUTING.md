@@ -43,6 +43,15 @@ pnpm test
 pnpm build
 ```
 
+The UI is built from [shadcn/ui](https://ui.shadcn.com) components. `src/components/ui/` holds them exactly as the shadcn CLI generates them, so add or update one with the CLI instead of editing it by hand:
+
+```bash
+cd frontend
+pnpm dlx shadcn@latest add <component>
+grep -rl 'from "cn"' src && echo "fix: import cn from @/lib/utils"   # the CLI sometimes imports the cn npm package
+pnpm format
+```
+
 Backend:
 
 ```bash

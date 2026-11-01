@@ -85,6 +85,7 @@ func NewRouter(cfg config.Config, deps Deps) (*gin.Engine, func(), error) {
 		nodes.GET("/nodes", dashboardHandler.GetNodes)
 		nodes.POST("/nodes", dashboardHandler.CreateNode)
 		nodes.POST("/nodes/check", dashboardHandler.CheckNode)
+		nodes.GET("/nodes/:id", dashboardHandler.GetNode)
 		nodes.GET("/nodes/:id/stats", dashboardHandler.GetNodeStats)
 		// POST, not GET: generating a config creates or rotates the peer on the node.
 		nodes.POST("/nodes/:id/config", dashboardHandler.GetNodeConfig)
