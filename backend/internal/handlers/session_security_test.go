@@ -149,6 +149,12 @@ func TestParseNodeAddressRejectsCredentials(t *testing.T) {
 		{"https://token@node.example", "", false},
 		{"ftp://node.example", "", false},
 		{"node.example", "", false},
+		{"http://169.254.169.254", "", false},
+		{"http://[fe80::1%25eth0]:51821", "", false},
+		{"http://[fd00:ec2::254]", "", false},
+		{"http://0.0.0.0:51821", "", false},
+		{"http://127.0.0.1:51821", "http://127.0.0.1:51821", true},
+		{"http://[2001:db8::1]:51821", "http://[2001:db8::1]:51821", true},
 	}
 	for _, tt := range tests {
 		got, ok := parseNodeAddress(tt.raw)

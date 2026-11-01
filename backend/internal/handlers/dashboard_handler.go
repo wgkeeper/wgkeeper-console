@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -79,6 +80,11 @@ func parseNodeAddress(raw string) (string, bool) {
 	// Credentials in the URL would be stored and shown in the UI in plaintext;
 	// the node authenticates with the API key instead.
 	if u.User != nil {
+		return "", false
+	}
+	// A literal link-local or metadata IP is refused here with a clear error;
+	// hostnames that resolve to one are refused when the console connects.
+	if addr, err := netip.ParseAddr(strings.Trim(u.Hostname(), "[]")); err == nil && services.IsBlockedNodeAddr(addr) {
 		return "", false
 	}
 	// Strip path/query/fragment — node addresses are bases that endpoints get

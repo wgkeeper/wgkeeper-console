@@ -6,19 +6,61 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
+	"slices"
 	"strings"
+	"syscall"
 	"time"
 )
+
+// ErrBlockedAddress is returned when a node address resolves to a link-local
+// or cloud metadata address, which no wgkeeper node listens on.
+var ErrBlockedAddress = errors.New("address not allowed for nodes")
+
+// metadataAddrs are cloud metadata endpoints outside the link-local ranges:
+// AWS over IPv6 and Alibaba Cloud.
+var metadataAddrs = []netip.Addr{
+	netip.MustParseAddr("fd00:ec2::254"),
+	netip.MustParseAddr("100.100.100.200"),
+}
+
+// IsBlockedNodeAddr reports whether the console refuses to connect to addr:
+// link-local (169.254.0.0/16, which holds the usual cloud metadata endpoint,
+// and fe80::/10), multicast, unspecified, and the metadata addresses above.
+// Loopback and private ranges stay allowed: nodes run on them.
+func IsBlockedNodeAddr(addr netip.Addr) bool {
+	addr = addr.Unmap()
+	return addr.IsLinkLocalUnicast() || addr.IsMulticast() || addr.IsUnspecified() ||
+		slices.Contains(metadataAddrs, addr)
+}
+
+// refuseBlockedAddress runs after DNS resolution, right before each connect,
+// so a hostname that resolves (or is rebound) to a blocked address is caught
+// too. With an outbound proxy configured this checks the proxy's address; the
+// proxy's own policy then governs where requests go.
+func refuseBlockedAddress(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("%w: %s", ErrBlockedAddress, address)
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil || IsBlockedNodeAddr(addr) {
+		return fmt.Errorf("%w: %s", ErrBlockedAddress, host)
+	}
+	return nil
+}
 
 var sharedHTTPTransport = &http.Transport{
 	Proxy: http.ProxyFromEnvironment,
 	DialContext: (&net.Dialer{
 		Timeout:   3 * time.Second,
 		KeepAlive: 30 * time.Second,
+		Control:   refuseBlockedAddress,
 	}).DialContext,
 	ForceAttemptHTTP2:     true,
 	MaxIdleConns:          100,
