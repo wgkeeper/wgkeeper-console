@@ -2,6 +2,7 @@ package config
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -111,5 +112,69 @@ func BenchmarkLoad(b *testing.B) {
 		if _, err := Load(); err != nil {
 			b.Fatalf("Load() error = %v", err)
 		}
+	}
+}
+
+func TestLoadRejectsSameSiteNoneWithoutSecure(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("COOKIE_SAMESITE", "none")
+	t.Setenv("COOKIE_SECURE", "false")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected an error for SameSite=None without Secure")
+	}
+
+	t.Setenv("COOKIE_SECURE", "true")
+	if _, err := Load(); err != nil {
+		t.Fatalf("SameSite=None with Secure: %v", err)
+	}
+}
+
+func TestLoadReportsEveryInvalidValue(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("SESSION_TTL", "7d")
+	t.Setenv("COOKIE_SAMESITE", "laxx")
+	t.Setenv("DEBUG", "yes please")
+	t.Setenv("LOG_FORMAT", "xml")
+	t.Setenv("DB_MAX_OPEN_CONNS", "many")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	for _, name := range []string{"SESSION_TTL", "COOKIE_SAMESITE", "DEBUG", "LOG_FORMAT", "DB_MAX_OPEN_CONNS"} {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("error does not mention %s:\n%v", name, err)
+		}
+	}
+}
+
+func TestLoadMetricsConfig(t *testing.T) {
+	tests := []struct {
+		name, port, token string
+		wantErr           bool
+		enabled           bool
+	}{
+		{"off by default", "", "", false, false},
+		{"on with a long token", "9100", strings.Repeat("t", 32), false, true},
+		{"short token", "9100", "short", true, true},
+		{"missing token", "9100", "", true, true},
+		{"port out of range", "70000", strings.Repeat("t", 32), true, true},
+		{"same port as the API", "8000", strings.Repeat("t", 32), true, true},
+		{"not a number", "ninety", strings.Repeat("t", 32), true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("APP_ENV", "development")
+			t.Setenv("METRICS_PORT", tt.port)
+			t.Setenv("METRICS_TOKEN", tt.token)
+			cfg, err := Load()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Load() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && cfg.Metrics.Enabled() != tt.enabled {
+				t.Fatalf("Enabled() = %v, want %v", cfg.Metrics.Enabled(), tt.enabled)
+			}
+		})
 	}
 }

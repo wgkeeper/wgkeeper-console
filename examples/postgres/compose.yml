@@ -1,0 +1,46 @@
+# PostgreSQL instead of the default SQLite file.
+#
+# Adds a postgres service on top of the main Compose file and points the
+# console at it. Run from the directory with docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f examples/postgres/compose.yml up -d
+#
+# Set POSTGRES_PASSWORD in .env next to docker-compose.yml first:
+#
+#   echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" >> .env
+#
+# Combine it with a proxy example by listing both files (or put them all in
+# COMPOSE_FILE in .env). Moving an existing SQLite install doesn't copy data;
+# add the nodes again after switching.
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      POSTGRES_USER: console
+      POSTGRES_DB: console
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "console"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  console:
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://console:${POSTGRES_PASSWORD}@postgres:5432/console?sslmode=disable
+
+volumes:
+  postgres_data:

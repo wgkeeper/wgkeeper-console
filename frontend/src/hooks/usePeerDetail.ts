@@ -31,7 +31,7 @@ export function usePeerDetail(
 
   useEffect(
     () => () => {
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current);
       regenerateAbortRef.current?.abort();
     },
     [],
@@ -48,26 +48,21 @@ export function usePeerDetail(
     }
     const controller = new AbortController();
     setDetailLoading(true);
-    apiFetch(`/api/nodes/${encodeURIComponent(nodeId)}/peers/${encodeURIComponent(peerId)}`, {
-      signal: controller.signal,
-    })
-      .then((res) => {
+    const load = async () => {
+      try {
+        const res = await apiFetch(
+          `/api/nodes/${encodeURIComponent(nodeId)}/peers/${encodeURIComponent(peerId)}`,
+          { signal: controller.signal },
+        );
         if (controller.signal.aborted) return;
-        if (!res.ok) {
-          setDetail(null);
-          return;
-        }
-        return res.json() as Promise<PeerDetail>;
-      })
-      .then((data) => {
-        if (controller.signal.aborted) return;
-        if (data) setDetail(data);
-        setDetailLoading(false);
-      })
-      .catch((err: unknown) => {
+        setDetail(res.ok ? ((await res.json()) as PeerDetail) : null);
+        if (!controller.signal.aborted) setDetailLoading(false);
+      } catch (err) {
         if ((err as Error).name === 'AbortError') return;
         setDetailLoading(false);
-      });
+      }
+    };
+    void load();
     return () => controller.abort();
   }, [nodeId, peerId, apiFetch]);
 
@@ -85,7 +80,7 @@ export function usePeerDetail(
     try {
       const res = await apiFetch(
         `/api/nodes/${encodeURIComponent(nodeId)}/config?peerId=${encodeURIComponent(peerId)}`,
-        { signal: controller.signal },
+        { method: 'POST', signal: controller.signal },
       );
       if (!res.ok) {
         const rl = rateLimitMessage(res);
@@ -138,7 +133,7 @@ export function usePeerDetail(
     try {
       await navigator.clipboard.writeText(configText);
       setConfigCopied(true);
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current);
       copyTimerRef.current = setTimeout(() => setConfigCopied(false), 1500);
     } catch {
       setConfigError('Failed to copy config.');

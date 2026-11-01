@@ -1,13 +1,14 @@
 @import 'tailwindcss';
+@import 'tw-animate-css';
 
-/* Theme tokens — OKLCH monochrome base, Vercel/Geist-inspired.
-   Raw color values live in :root / .dark below; @theme inline only maps them
-   to Tailwind color/utility names so it never re-emits the variables. */
+@custom-variant dark (&:is(.dark *));
+
+/* shadcn/ui tokens (neutral base, OKLCH) plus the console's status colors and
+   the brand red. Raw values live in :root / .dark; @theme inline only maps them
+   to Tailwind utility names. */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-surface: var(--surface);
-  --color-surface-foreground: var(--surface-foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
@@ -21,21 +22,25 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-destructive-muted: var(--destructive-muted);
-  --color-success: var(--success);
-  --color-success-foreground: var(--success-foreground);
-  --color-success-muted: var(--success-muted);
-  --color-warning: var(--warning);
-  --color-warning-foreground: var(--warning-foreground);
-  --color-warning-muted: var(--warning-muted);
-  --color-info: var(--info);
-  --color-info-foreground: var(--info-foreground);
-  --color-info-muted: var(--info-muted);
-  --color-brand: var(--brand);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-brand: var(--brand);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -47,128 +52,107 @@
     sans-serif;
   --font-mono:
     'Geist Mono Variable', ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
-
-  --breakpoint-2xl: 87.5rem;
 }
 
-/* Light theme */
 :root {
   --radius: 0.625rem;
 
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
-  --surface: oklch(0.985 0 0);
-  --surface-foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.5 0 0);
-  --accent: oklch(0.94 0 0);
+  --muted-foreground: oklch(0.52 0 0);
+  --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
-
-  --destructive: oklch(0.55 0.21 25.5);
-  --destructive-foreground: oklch(0.985 0 0);
-  --destructive-muted: oklch(0.951 0.035 22);
-  --success: oklch(0.62 0.16 152);
-  --success-foreground: oklch(0.43 0.13 152);
-  --success-muted: oklch(0.955 0.04 152);
-  --warning: oklch(0.72 0.15 72);
-  --warning-foreground: oklch(0.47 0.1 60);
-  --warning-muted: oklch(0.96 0.05 85);
-  --info: oklch(0.58 0.16 252);
-  --info-foreground: oklch(0.46 0.16 255);
-  --info-muted: oklch(0.955 0.03 255);
-  --brand: oklch(0.577 0.225 25.3);
-
+  --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.205 0 0);
+  /* Dark enough that the 50% focus ring still clears 3:1 on white. */
+  --ring: oklch(0.25 0 0);
+
+  /* --success and --warning fill dots and borders; the -foreground pair is for
+     text, tuned to 4.5:1 on the light surfaces. */
+  --success: oklch(0.6 0.15 152);
+  --success-foreground: oklch(0.52 0.14 152);
+  --warning: oklch(0.7 0.16 70);
+  --warning-foreground: oklch(0.54 0.13 65);
+  --info: oklch(0.58 0.16 252);
+  --brand: oklch(0.577 0.225 25.3);
+
+  --sidebar: oklch(0.975 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.935 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.25 0 0);
 }
 
-/* Dark theme — flagship */
 .dark {
-  --background: oklch(0.145 0 0);
+  --background: oklch(0.178 0 0);
   --foreground: oklch(0.985 0 0);
-  --surface: oklch(0.178 0 0);
-  --surface-foreground: oklch(0.985 0 0);
-  --card: oklch(0.178 0 0);
+  --card: oklch(0.215 0 0);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.178 0 0);
+  --popover: oklch(0.225 0 0);
   --popover-foreground: oklch(0.985 0 0);
-
-  --primary: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
   --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.24 0 0);
+  --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.24 0 0);
+  --muted: oklch(0.255 0 0);
   --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.28 0 0);
+  --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.92 0 0);
 
-  --destructive: oklch(0.62 0.21 25.6);
-  --destructive-foreground: oklch(0.985 0 0);
-  --destructive-muted: oklch(0.26 0.075 22);
-  --success: oklch(0.7 0.16 152);
-  --success-foreground: oklch(0.82 0.16 152);
-  --success-muted: oklch(0.27 0.06 152);
-  --warning: oklch(0.79 0.15 75);
-  --warning-foreground: oklch(0.86 0.13 85);
-  --warning-muted: oklch(0.3 0.06 70);
-  --info: oklch(0.66 0.16 252);
-  --info-foreground: oklch(0.8 0.13 252);
-  --info-muted: oklch(0.28 0.07 255);
+  --success: oklch(0.72 0.16 152);
+  --success-foreground: oklch(0.76 0.15 152);
+  --warning: oklch(0.8 0.15 75);
+  --warning-foreground: oklch(0.82 0.14 80);
+  --info: oklch(0.7 0.14 252);
   --brand: oklch(0.65 0.21 25.6);
 
-  --border: oklch(0.27 0 0);
-  --input: oklch(0.3 0 0);
-  --ring: oklch(0.87 0 0);
+  --sidebar: oklch(0.145 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.922 0 0);
+  --sidebar-primary-foreground: oklch(0.205 0 0);
+  --sidebar-accent: oklch(0.235 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 9%);
+  --sidebar-ring: oklch(0.92 0 0);
 }
 
 @layer base {
   * {
-    @apply border-border;
+    @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background font-sans text-foreground antialiased;
+    @apply bg-sidebar font-sans text-foreground antialiased;
     font-feature-settings:
       'rlig' 1,
       'calt' 1;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    text-rendering: optimizeLegibility;
   }
   ::selection {
     background-color: color-mix(in oklab, var(--foreground) 16%, transparent);
   }
-  /* Tabular figures for technical numbers feel intentional in mono contexts. */
-  .font-mono {
+  /* Data and measurements line up in columns. */
+  .font-mono,
+  td {
     font-variant-numeric: tabular-nums;
   }
-}
-
-@keyframes skeleton-pulse {
-  0% {
-    opacity: 0.55;
-  }
-  50% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0.55;
-  }
-}
-
-@layer components {
-  .skeleton {
-    @apply rounded-md bg-muted;
-    animation: skeleton-pulse 1.4s ease-in-out infinite;
+  :root {
+    scrollbar-color: color-mix(in oklab, var(--foreground) 22%, transparent) transparent;
   }
 }
 
@@ -180,5 +164,11 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+  /* Spinners carry meaning (work in progress), so they slow down instead of
+     freezing. */
+  .animate-spin {
+    animation-duration: 1.5s !important;
+    animation-iteration-count: infinite !important;
   }
 }

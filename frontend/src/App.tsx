@@ -1,24 +1,17 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
-import type { NodeItem, NodeListResponse } from './types';
+import type { FleetSummary, NodeItem, NodeListResponse } from './types';
 import { LoginScreen } from '@/components/auth/LoginScreen';
 import { ChangePasswordScreen } from '@/components/auth/ChangePasswordScreen';
 import { AppShell } from '@/components/layout/AppShell';
 import { Skeleton } from '@/components/ui/skeleton';
-import { createApiFetch, rateLimitMessage, REQUEST_TIMEOUT_MS } from '@/lib/api-client';
+import {
+  createApiFetch,
+  fetchErrorMessage,
+  rateLimitMessage,
+  REQUEST_TIMEOUT_MS,
+} from '@/lib/api-client';
 import { NODES_PAGE_SIZE } from '@/lib/peer-utils';
-
-const getInitialTheme = (): 'light' | 'dark' => {
-  if (typeof document !== 'undefined' && document.documentElement.classList.contains('dark')) {
-    return 'dark';
-  }
-
-  try {
-    return localStorage.getItem('wg-theme') === 'dark' ? 'dark' : 'light';
-  } catch {
-    return 'light';
-  }
-};
 
 function App() {
   const [isLoading, setIsLoading] = useState(true);
@@ -36,8 +29,12 @@ function App() {
   const [nodesTotal, setNodesTotal] = useState(0);
   const [nodesLoading, setNodesLoading] = useState(false);
   const [nodesError, setNodesError] = useState<string | null>(null);
+  const [nodesSummary, setNodesSummary] = useState<FleetSummary | null>(null);
+  // The page on screen and the latest list request: a slow response for a
+  // page the user already left must not replace the one they are looking at.
+  const currentPage = useRef(1);
+  const latestNodesRequest = useRef(0);
   const [username, setUsername] = useState<string | null>(null);
-  const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme);
   const navigate = useNavigate();
 
   const [apiFetch] = useState(() =>
@@ -54,6 +51,8 @@ function App() {
     const signal = controller.signal;
 
     const bootstrap = async () => {
+      // Fetch the landing page's code while the session check is in flight.
+      void import('@/pages/NodesPage');
       try {
         const mergedSignal = AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
         const meRes = await fetch('/api/me', {
@@ -86,25 +85,35 @@ function App() {
     return () => controller.abort();
   }, [setUsername]);
 
+  /** Loads a page of nodes (the current one by default); resolves to whether it worked. */
   const loadNodes = useCallback(
-    async (page = 1) => {
+    async (page?: number) => {
+      const target = page ?? currentPage.current;
+      const request = ++latestNodesRequest.current;
+      const isLatest = () => request === latestNodesRequest.current;
       setNodesLoading(true);
       setNodesError(null);
       try {
-        const res = await apiFetch(`/api/nodes?page=${page}&limit=${NODES_PAGE_SIZE}`);
+        const res = await apiFetch(`/api/nodes?page=${target}&limit=${NODES_PAGE_SIZE}`);
+        if (!isLatest()) return false;
         if (!res.ok) {
-          setNodesError('Failed to load nodes. Please try again.');
-          return;
+          setNodesError('The console could not load the node list. Try again.');
+          return false;
         }
         const data = (await res.json()) as NodeListResponse;
+        if (!isLatest()) return false;
+        currentPage.current = data.page;
         setNodes(data.nodes);
         setNodesPage(data.page);
         setNodesTotalPages(data.totalPages);
         setNodesTotal(data.total);
+        setNodesSummary(data.summary ?? null);
+        return true;
       } catch {
-        setNodesError('Failed to load nodes. Please try again.');
+        if (isLatest()) setNodesError('The console could not load the node list. Try again.');
+        return false;
       } finally {
-        setNodesLoading(false);
+        if (isLatest()) setNodesLoading(false);
       }
     },
     [apiFetch],
@@ -116,14 +125,7 @@ function App() {
     }
   }, [isAuthed, mustChangePassword, loadNodes]);
 
-  useEffect(() => {
-    const isDark = theme === 'dark';
-    document.documentElement.classList.toggle('dark', isDark);
-    document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
-    localStorage.setItem('wg-theme', theme);
-  }, [theme]);
-
-  const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleLogin = async (event: React.SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLoginError('');
     setIsLoginSubmitting(true);
@@ -158,11 +160,14 @@ function App() {
       return;
     }
 
-    const body = (await res.json()) as {
-      ok: boolean;
-      mustChangePassword?: boolean;
-      username?: string;
-    };
+    let body: { ok: boolean; mustChangePassword?: boolean; username?: string };
+    try {
+      body = (await res.json()) as typeof body;
+    } catch {
+      setLoginError('Login failed. Please try again.');
+      setIsLoginSubmitting(false);
+      return;
+    }
     if (!body.ok) {
       setLoginError('Invalid username or password.');
       setIsLoginSubmitting(false);
@@ -195,7 +200,7 @@ function App() {
     }
   };
 
-  const handleChangePassword = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleChangePassword = async (event: React.SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     setPasswordError('');
     setIsPasswordSubmitting(true);
@@ -207,10 +212,17 @@ function App() {
       payload.currentPassword = passwordForm.currentPassword;
     }
 
-    const res = await apiFetch('/api/change-password', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+    let res: Response;
+    try {
+      res = await apiFetch('/api/change-password', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      setPasswordError(fetchErrorMessage(err) ?? 'Network error. Please try again.');
+      setIsPasswordSubmitting(false);
+      return;
+    }
 
     if (!res.ok) {
       try {
@@ -239,33 +251,24 @@ function App() {
     await loadNodes();
   };
 
-  const handleThemeToggle = (checked: boolean) => {
-    setTheme(checked ? 'dark' : 'light');
-  };
-
   if (isLoading) {
     return (
-      <div className="flex min-h-screen bg-background">
-        <div className="hidden w-64 flex-shrink-0 flex-col gap-3 border-r border-border bg-surface p-4 md:flex">
-          <div className="flex flex-col gap-1.5 px-1 py-1.5">
-            <Skeleton className="h-6 w-28" />
-            <Skeleton className="h-2.5 w-16" />
-          </div>
-          <div className="flex flex-col gap-1.5 pt-3">
-            <Skeleton className="h-9 w-full rounded-md" />
-            <Skeleton className="h-9 w-full rounded-md" />
+      <div className="flex min-h-svh bg-sidebar">
+        <div className="hidden w-64 shrink-0 flex-col gap-2 p-4 md:flex">
+          <Skeleton className="h-5 w-32" />
+          <div className="mt-6 flex flex-col gap-2">
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
           </div>
         </div>
-        <div className="flex flex-1 flex-col">
-          <div className="flex h-16 items-center border-b border-border px-6">
-            <div className="mx-auto flex w-full max-w-6xl flex-col gap-1.5">
-              <Skeleton className="h-5 w-28" />
-              <Skeleton className="h-3.5 w-64" />
-            </div>
+        <div className="m-2 flex flex-1 flex-col rounded-xl bg-background shadow-sm md:ml-0">
+          <div className="flex h-14 items-center border-b px-4">
+            <Skeleton className="h-4 w-40" />
           </div>
-          <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-8">
-            <Skeleton className="h-28 w-full rounded-lg" />
-            <Skeleton className="h-72 w-full rounded-lg" />
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-6">
+            <Skeleton className="h-8 w-48" />
+            <Skeleton className="h-24 w-full rounded-xl" />
+            <Skeleton className="h-80 w-full rounded-xl" />
           </div>
         </div>
       </div>
@@ -333,10 +336,9 @@ function App() {
       nodesTotal={nodesTotal}
       nodesLoading={nodesLoading}
       nodesError={nodesError}
+      nodesSummary={nodesSummary}
       apiFetch={apiFetch}
       onReloadNodes={loadNodes}
-      theme={theme}
-      onThemeToggle={handleThemeToggle}
       onLogout={handleLogout}
       username={username ?? undefined}
     />

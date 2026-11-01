@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"errors"
+	"log/slog"
 	"math"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -59,15 +62,29 @@ type DashboardHandler struct {
 }
 
 func NewDashboardHandler() *DashboardHandler {
-	return &DashboardHandler{
-		service: services.NewDashboardService(),
-	}
+	return NewDashboardHandlerWithService(services.NewDashboardService())
+}
+
+// NewDashboardHandlerWithService builds the handler around an existing
+// service, for example one whose node requests are instrumented.
+func NewDashboardHandlerWithService(svc *services.DashboardService) *DashboardHandler {
+	return &DashboardHandler{service: svc}
 }
 
 func parseNodeAddress(raw string) (string, bool) {
 	trimmed := strings.TrimRight(strings.TrimSpace(raw), "/")
 	u, err := url.Parse(trimmed)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", false
+	}
+	// Credentials in the URL would be stored and shown in the UI in plaintext;
+	// the node authenticates with the API key instead.
+	if u.User != nil {
+		return "", false
+	}
+	// A literal link-local or metadata IP is refused here with a clear error;
+	// hostnames that resolve to one are refused when the console connects.
+	if addr, err := netip.ParseAddr(strings.Trim(u.Hostname(), "[]")); err == nil && services.IsBlockedNodeAddr(addr) {
 		return "", false
 	}
 	// Strip path/query/fragment — node addresses are bases that endpoints get
@@ -79,12 +96,53 @@ func parseNodeAddress(raw string) (string, bool) {
 	return strings.TrimRight(u.String(), "/"), true
 }
 
+// FleetSummary counts every node in the console, not just the current page.
+type FleetSummary struct {
+	Online   int64 `json:"online" example:"22"`
+	Offline  int64 `json:"offline" example:"1"`
+	Outdated int64 `json:"outdated" example:"1"`
+}
+
+// nodeJSON is the wire shape of a node, shared by the list and the single-node
+// endpoint.
+func nodeJSON(node models.Node, latestRelease *services.LatestNodeRelease) gin.H {
+	var latestVersion, latestVersionURL *string
+	if latestRelease != nil {
+		latestVersion = &latestRelease.Version
+		latestVersionURL = &latestRelease.URL
+	}
+	return gin.H{
+		"id":               node.ID,
+		"name":             node.Name,
+		"address":          node.Address,
+		"status":           node.Status,
+		"version":          node.Version,
+		"isOutdated":       services.IsVersionOutdated(node.Version, latestRelease),
+		"latestVersion":    latestVersion,
+		"latestVersionUrl": latestVersionURL,
+		"createdAt":        node.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		"updatedAt":        node.UpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+	}
+}
+
+// latestRelease returns the newest wgkeeper-node release, or nil. The check is
+// informational: without it nodes just show no update hints.
+func (h *DashboardHandler) latestRelease(c *gin.Context) *services.LatestNodeRelease {
+	release, err := h.service.GetLatestNodeRelease(c.Request.Context())
+	if err != nil {
+		slog.DebugContext(c.Request.Context(), "latest node release unavailable", "err", err)
+	}
+	return release
+}
+
 // GetNodes godoc
 // @Summary      Get all nodes
-// @Description  Retrieve list of all WireGuard nodes
+// @Description  Retrieve a page of WireGuard nodes and status counts for the whole fleet
 // @Tags         nodes
 // @Security     CookieAuth
-// @Success      200  {array}   NodeItem
+// @Param        page   query  int  false  "Page, from 1"
+// @Param        limit  query  int  false  "Nodes per page, up to 100"
+// @Success      200  {object}  map[string]interface{}  "nodes, total, page, pageSize, totalPages, summary"
 // @Failure      401  {object}  map[string]interface{}  "Unauthorized"
 // @Router       /nodes [get]
 func (h *DashboardHandler) GetNodes(c *gin.Context) {
@@ -101,40 +159,25 @@ func (h *DashboardHandler) GetNodes(c *gin.Context) {
 		limit = 100
 	}
 
-	nodes, total, err := h.service.GetNodes(page, limit)
+	nodes, total, err := h.service.GetNodes(c.Request.Context(), page, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
 		return
 	}
 
-	latestRelease, _ := h.service.GetLatestNodeRelease()
-	var latestVersion *string
-	var latestVersionURL *string
-	if latestRelease != nil {
-		latestVersion = &latestRelease.Version
-		latestVersionURL = &latestRelease.URL
+	latestRelease := h.latestRelease(c)
+	summary, err := h.service.FleetSummary(c.Request.Context(), latestRelease)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
+		return
 	}
 
 	result := make([]gin.H, len(nodes))
 	for i, node := range nodes {
-		result[i] = gin.H{
-			"id":               node.ID,
-			"name":             node.Name,
-			"address":          node.Address,
-			"status":           node.Status,
-			"version":          node.Version,
-			"isOutdated":       services.IsVersionOutdated(node.Version, latestRelease),
-			"latestVersion":    latestVersion,
-			"latestVersionUrl": latestVersionURL,
-			"createdAt":        node.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-			"updatedAt":        node.UpdatedAt.Format("2006-01-02T15:04:05.000Z"),
-		}
+		result[i] = nodeJSON(node, latestRelease)
 	}
 
-	totalPages := int(math.Ceil(float64(total) / float64(limit)))
-	if totalPages < 1 {
-		totalPages = 1
-	}
+	totalPages := max(int(math.Ceil(float64(total)/float64(limit))), 1)
 
 	c.JSON(http.StatusOK, gin.H{
 		"nodes":      result,
@@ -142,7 +185,38 @@ func (h *DashboardHandler) GetNodes(c *gin.Context) {
 		"page":       page,
 		"pageSize":   limit,
 		"totalPages": totalPages,
+		"summary": FleetSummary{
+			Online:   summary.Online,
+			Offline:  summary.Offline,
+			Outdated: summary.Outdated,
+		},
 	})
+}
+
+// GetNode godoc
+// @Summary      Get a node
+// @Description  Retrieve one WireGuard node by ID
+// @Tags         nodes
+// @Security     CookieAuth
+// @Produce      json
+// @Param        id   path      string  true  "Node ID"
+// @Success      200  {object}  NodeItem
+// @Failure      404  {object}  map[string]interface{}  "Node not found"
+// @Router       /nodes/{id} [get]
+func (h *DashboardHandler) GetNode(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false})
+		return
+	}
+
+	node, err := h.service.FindNodeByID(c.Request.Context(), id)
+	if err != nil {
+		writeNodeError(c, err, "node_unavailable")
+		return
+	}
+
+	c.JSON(http.StatusOK, nodeJSON(*node, h.latestRelease(c)))
 }
 
 // CreateNode godoc
@@ -174,24 +248,29 @@ func (h *DashboardHandler) CreateNode(c *gin.Context) {
 		return
 	}
 
-	existingNode, err := h.service.FindNodeByAddress(address)
-	if err != nil {
+	switch _, err := h.service.FindNodeByAddress(c.Request.Context(), address); {
+	case err == nil:
+		c.JSON(http.StatusConflict, gin.H{"ok": false, "error": "node_exists"})
+		return
+	case !errors.Is(err, services.ErrNodeNotFound):
+		slog.ErrorContext(c.Request.Context(), "create node: look up address", "err", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
 		return
 	}
-	if existingNode != nil {
-		c.JSON(http.StatusConflict, gin.H{"ok": false, "error": "node_exists"})
-		return
-	}
 
-	node, err := h.service.CreateNode(struct {
+	node, err := h.service.CreateNode(c.Request.Context(), struct {
 		Address string
 		APIKey  string
 	}{
 		Address: address,
 		APIKey:  apiKey,
 	})
+	if errors.Is(err, services.ErrNodeExists) {
+		c.JSON(http.StatusConflict, gin.H{"ok": false, "error": "node_exists"})
+		return
+	}
 	if err != nil {
+		slog.ErrorContext(c.Request.Context(), "create node", "err", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
 		return
 	}
@@ -227,7 +306,7 @@ func (h *DashboardHandler) CheckNode(c *gin.Context) {
 		return
 	}
 
-	health, err := h.service.CheckNode(address, apiKey)
+	health, err := h.service.CheckNode(c.Request.Context(), address, apiKey)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": "service_error"})
 		return
@@ -263,8 +342,12 @@ func (h *DashboardHandler) GetNodeStats(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.service.GetNodeStats(id)
-	if err != nil || stats == nil || stats.Data == nil {
+	stats, err := h.service.GetNodeStats(c.Request.Context(), id)
+	if err != nil {
+		writeNodeError(c, err, "stats_unavailable")
+		return
+	}
+	if stats == nil || stats.Data == nil {
 		// Always return 502 for upstream failures — our backend's status code
 		// stays meaningful (502 = upstream failed). The upstream's actual code
 		// is preserved in the response body for diagnostics.
@@ -305,7 +388,7 @@ func (h *DashboardHandler) GetNodeStats(c *gin.Context) {
 // @Success      200             {string}  string  "WireGuard config file"
 // @Failure      400             {object}  map[string]interface{}  "Bad request"
 // @Failure      502             {object}  map[string]interface{}  "Config unavailable"
-// @Router       /nodes/{id}/config [get]
+// @Router       /nodes/{id}/config [post]
 func (h *DashboardHandler) GetNodeConfig(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	peerID := strings.TrimSpace(c.Query("peerId"))
@@ -316,8 +399,8 @@ func (h *DashboardHandler) GetNodeConfig(c *gin.Context) {
 
 	var dns []string
 	if dnsParam := c.Query("dns"); dnsParam != "" {
-		parts := strings.Split(dnsParam, ",")
-		for _, part := range parts {
+		parts := strings.SplitSeq(dnsParam, ",")
+		for part := range parts {
 			trimmed := strings.TrimSpace(part)
 			if trimmed == "" {
 				continue
@@ -351,8 +434,12 @@ func (h *DashboardHandler) GetNodeConfig(c *gin.Context) {
 		}
 	}
 
-	config, err := h.service.GetNodeConfig(id, peerID, dns, expiresAt, addressFamilies)
-	if err != nil || config == nil || config.Data == nil {
+	config, err := h.service.GetNodeConfig(c.Request.Context(), id, peerID, dns, expiresAt, addressFamilies)
+	if err != nil {
+		writeNodeError(c, err, "config_unavailable")
+		return
+	}
+	if config == nil || config.Data == nil {
 		// Always 502 for upstream failures — upstream's actual code stays in
 		// the response body for diagnostics.
 		topErrorCode := "config_unavailable"
@@ -373,7 +460,7 @@ func (h *DashboardHandler) GetNodeConfig(c *gin.Context) {
 			statusPtr = config.StatusCode
 			endpointPtr = config.Endpoint
 			if config.ErrorData != nil {
-				if errMap, ok := config.ErrorData.(map[string]interface{}); ok {
+				if errMap, ok := config.ErrorData.(map[string]any); ok {
 					if code, ok := errMap["code"].(string); ok {
 						errorCode = code
 					}
@@ -439,9 +526,9 @@ func (h *DashboardHandler) GetNodePeers(c *gin.Context) {
 		limit = 500
 	}
 
-	result, err := h.service.GetNodePeers(id, offset, limit)
-	if err != nil || result == nil {
-		c.JSON(http.StatusBadGateway, gin.H{"ok": false, "error": "peers_unavailable"})
+	result, err := h.service.GetNodePeers(c.Request.Context(), id, offset, limit)
+	if err != nil {
+		writeNodeError(c, err, "peers_unavailable")
 		return
 	}
 
@@ -468,9 +555,14 @@ func (h *DashboardHandler) GetNodePeerDetail(c *gin.Context) {
 		return
 	}
 
-	peer, err := h.service.GetNodePeerDetail(id, peerID)
-	if err != nil || peer == nil {
-		c.JSON(http.StatusNotFound, gin.H{"ok": false, "error": "peer_not_found"})
+	peer, err := h.service.GetNodePeerDetail(c.Request.Context(), id, peerID)
+	if err != nil {
+		var upstream *services.UpstreamError
+		if errors.As(err, &upstream) && upstream.Status == http.StatusNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"ok": false, "error": "peer_not_found"})
+			return
+		}
+		writeNodeError(c, err, "peer_unavailable")
 		return
 	}
 
@@ -497,9 +589,9 @@ func (h *DashboardHandler) DeletePeer(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.DeletePeer(id, peerID)
-	if err != nil || result == nil {
-		c.JSON(http.StatusBadGateway, gin.H{"ok": false, "error": "peer_delete_failed"})
+	result, err := h.service.DeletePeer(c.Request.Context(), id, peerID)
+	if err != nil {
+		writeNodeError(c, err, "peer_delete_failed")
 		return
 	}
 
@@ -538,9 +630,8 @@ func (h *DashboardHandler) DeleteNode(c *gin.Context) {
 		return
 	}
 
-	deleted, err := h.service.DeleteNode(id)
-	if err != nil || deleted == nil {
-		c.JSON(http.StatusNotFound, gin.H{"ok": false, "error": "node_not_found"})
+	if _, err := h.service.DeleteNode(c.Request.Context(), id); err != nil {
+		writeNodeError(c, err, "node_delete_failed")
 		return
 	}
 
@@ -557,7 +648,7 @@ func (h *DashboardHandler) DeleteNode(c *gin.Context) {
 // @Failure      401  {object}  map[string]interface{}  "Unauthorized"
 // @Router       /nodes/refresh [post]
 func (h *DashboardHandler) RefreshNodes(c *gin.Context) {
-	if err := h.service.RefreshStatuses(); err != nil {
+	if err := h.service.RefreshStatuses(c.Request.Context()); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
 		return
 	}

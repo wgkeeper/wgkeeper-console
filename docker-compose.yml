@@ -1,41 +1,41 @@
 services:
-  app:
-    build: .
-    container_name: wg-keeper-console
-    expose:
-      - "8000"
-    environment:
-      - PORT=8000
-      - DATABASE_URL=file:/app/data/wgkeeper-console.db
-      - NODE_ENV=production
-      # Trust X-Forwarded-For from Caddy on the internal network so per-IP
-      # rate-limits apply per real client, not to all users via the proxy IP.
-      # Port 8000 is not published, so only the proxy can reach the app.
-      - TRUSTED_PROXIES=172.16.0.0/12,192.168.0.0/16,10.0.0.0/8,127.0.0.1
-    networks:
-      - internal
+  console:
+    image: ghcr.io/wgkeeper/console
+    restart: always
+    # Settings and secrets (SECRET_KEY, BOOTSTRAP_ADMIN_PASSWORD, ...) live in
+    # console.env next to this file; see console.env.example and docs/configuration.md.
+    env_file: console.env
+    # Rotated logs: Docker's default json-file driver keeps every line forever.
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Graceful shutdown waits for in-flight requests and a running status refresh.
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
     volumes:
-      - wg-keeper-data:/app/data
-    restart: unless-stopped
-
-  caddy:
-    image: caddy:2
-    container_name: wg-keeper-caddy
+      # SQLite database (users, nodes, encrypted node API keys). Keep it, and
+      # back it up together with SECRET_KEY: without the key the stored node
+      # API keys can't be decrypted.
+      - console_data:/app/data
     ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-    networks:
-      - internal
-    depends_on:
-      - app
-    restart: unless-stopped
-
-networks:
-  internal:
-    driver: bridge
+      # The console is plain HTTP, so it is published on this host's loopback
+      # only. For access from other machines, put a reverse proxy with HTTPS in
+      # front (see examples/caddy and examples/nginx), or use an SSH tunnel:
+      #   ssh -L 8000:127.0.0.1:8000 your-server
+      # Never publish it on all interfaces.
+      - "127.0.0.1:8000:8000"
+      # Do NOT publish the metrics port (METRICS_PORT) on the host; let
+      # Prometheus scrape it inside the Docker network. See docs/metrics.md.
+    healthcheck:
+      # /readyz also checks the database. The port must match PORT.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
 
 volumes:
-  wg-keeper-data:
-    driver: local
+  console_data:

@@ -1,12 +1,3 @@
-const dateTimeFormatOptions: Intl.DateTimeFormatOptions = {
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-};
-
 export const NODES_PAGE_SIZE = 12;
 export const PAGE_SIZES = [25, 50, 100, 250] as const;
 
@@ -17,26 +8,43 @@ export function formatBytes(n: number): string {
   return n + ' B';
 }
 
-export function formatDate(iso: string | null): string {
+// Built once: a 250-row table formats several dates per row on every render.
+// The browser's locale decides the order and separators.
+const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
+/** "1 Nov 2026, 17:36" in the browser's locale; "—" for a missing date. */
+export function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—';
   try {
-    return new Intl.DateTimeFormat('de-DE', dateTimeFormatOptions).format(new Date(iso));
+    return dateFormat.format(new Date(iso));
   } catch {
     return iso;
   }
 }
 
-export function formatExpires(iso: string | null | undefined): string {
-  if (!iso) return 'No limit';
-  try {
-    return new Intl.DateTimeFormat('de-DE', dateTimeFormatOptions).format(new Date(iso));
-  } catch {
-    return iso;
+const relativeUnits: [Intl.RelativeTimeFormatUnit, number][] = [
+  ['year', 365 * 24 * 3600],
+  ['month', 30 * 24 * 3600],
+  ['week', 7 * 24 * 3600],
+  ['day', 24 * 3600],
+  ['hour', 3600],
+  ['minute', 60],
+];
+
+const relativeFormat = new Intl.RelativeTimeFormat('en', { numeric: 'auto', style: 'short' });
+
+/** "3 min. ago", "in 2 days"; "—" for a missing date. */
+export function formatRelative(iso: string | null | undefined, now = Date.now()): string {
+  if (!iso) return '—';
+  const time = new Date(iso).getTime();
+  if (Number.isNaN(time)) return iso;
+  const seconds = Math.round((time - now) / 1000);
+  for (const [unit, size] of relativeUnits) {
+    if (Math.abs(seconds) >= size) return relativeFormat.format(Math.trunc(seconds / size), unit);
   }
+  return Math.abs(seconds) < 10 ? 'just now' : relativeFormat.format(seconds, 'second');
 }
 
-export function truncate(s: string | null | undefined, len: number): string {
-  if (!s) return '';
-  if (s.length <= len) return s;
-  return s.slice(0, len) + '…';
-}
+/** "1 peer", "3 peers". */
+export const plural = (count: number, one: string, many = `${one}s`) =>
+  `${count} ${count === 1 ? one : many}`;

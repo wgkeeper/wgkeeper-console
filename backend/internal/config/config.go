@@ -4,11 +4,13 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -20,7 +22,9 @@ type Config struct {
 	Environment         string
 	Debug               bool
 	DocsEnabled         bool
+	LogFormat           string // "text" or "json"
 	Server              ServerConfig
+	Metrics             MetricsConfig
 	CORS                CORSConfig
 	Auth                AuthConfig
 	Database            DatabaseConfig
@@ -37,6 +41,19 @@ type ServerConfig struct {
 	IdleTimeout       time.Duration
 	ShutdownTimeout   time.Duration
 }
+
+// MetricsConfig enables the Prometheus endpoint on its own port. Port 0 keeps
+// it off; a token of at least 32 characters is required when it is on.
+type MetricsConfig struct {
+	Port  int
+	Token string
+}
+
+// Enabled reports whether the metrics endpoint should run.
+func (m MetricsConfig) Enabled() bool { return m.Port != 0 }
+
+// minMetricsTokenLength matches wgkeeper-node's requirement.
+const minMetricsTokenLength = 32
 
 type CORSConfig struct {
 	AllowedOrigins []string
@@ -80,37 +97,45 @@ func Load() (Config, error) {
 		environment = "production"
 	}
 
+	// Invalid values are collected and reported together instead of silently
+	// falling back to defaults: SESSION_TTL=7d must not quietly become 24h.
+	p := &envParser{}
 	cfg := Config{
 		Environment: environment,
-		Debug:       parseBoolEnv("DEBUG", false),
-		DocsEnabled: parseBoolEnv("DOCS", false),
+		Debug:       p.bool("DEBUG", false),
+		DocsEnabled: p.bool("DOCS", false),
+		LogFormat:   p.oneOf("LOG_FORMAT", "text", "text", "json"),
 		Server: ServerConfig{
 			Port:              firstNonEmpty(strings.TrimSpace(os.Getenv("PORT")), "8000"),
 			TrustedProxies:    parseCSVEnv("TRUSTED_PROXIES"),
-			ReadTimeout:       parseDurationEnv("HTTP_READ_TIMEOUT", 10*time.Second),
-			ReadHeaderTimeout: parseDurationEnv("HTTP_READ_HEADER_TIMEOUT", 5*time.Second),
-			WriteTimeout:      parseDurationEnv("HTTP_WRITE_TIMEOUT", 30*time.Second),
-			IdleTimeout:       parseDurationEnv("HTTP_IDLE_TIMEOUT", 60*time.Second),
-			ShutdownTimeout:   parseDurationEnv("HTTP_SHUTDOWN_TIMEOUT", 10*time.Second),
+			ReadTimeout:       p.duration("HTTP_READ_TIMEOUT", 10*time.Second),
+			ReadHeaderTimeout: p.duration("HTTP_READ_HEADER_TIMEOUT", 5*time.Second),
+			WriteTimeout:      p.duration("HTTP_WRITE_TIMEOUT", 30*time.Second),
+			IdleTimeout:       p.duration("HTTP_IDLE_TIMEOUT", 60*time.Second),
+			ShutdownTimeout:   p.duration("HTTP_SHUTDOWN_TIMEOUT", 10*time.Second),
+		},
+		Metrics: MetricsConfig{
+			Port:  p.int("METRICS_PORT", 0),
+			Token: strings.TrimSpace(os.Getenv("METRICS_TOKEN")),
 		},
 		CORS: CORSConfig{
 			AllowedOrigins: defaultAllowedOrigins(environment),
 		},
 		Auth: AuthConfig{
-			SessionTTL: parseDurationEnv("SESSION_TTL", 24*time.Hour),
+			SessionTTL: p.duration("SESSION_TTL", 24*time.Hour),
 			Cookie: CookieConfig{
 				Domain:   strings.TrimSpace(os.Getenv("COOKIE_DOMAIN")),
-				Secure:   parseBoolEnv("COOKIE_SECURE", environment == "production"),
+				Secure:   p.bool("COOKIE_SECURE", environment == "production"),
 				HTTPOnly: true,
-				SameSite: parseSameSiteEnv("COOKIE_SAMESITE", http.SameSiteLaxMode),
+				SameSite: p.sameSite("COOKIE_SAMESITE", http.SameSiteLaxMode),
 			},
 		},
 		Database: DatabaseConfig{
 			URL:             parseDatabaseURL(),
-			MaxOpenConns:    parseIntEnv("DB_MAX_OPEN_CONNS", 20),
-			MaxIdleConns:    parseIntEnv("DB_MAX_IDLE_CONNS", 10),
-			ConnMaxLifetime: parseDurationEnv("DB_CONN_MAX_LIFETIME", time.Hour),
-			ConnMaxIdleTime: parseDurationEnv("DB_CONN_MAX_IDLE_TIME", 15*time.Minute),
+			MaxOpenConns:    p.int("DB_MAX_OPEN_CONNS", 20),
+			MaxIdleConns:    p.int("DB_MAX_IDLE_CONNS", 10),
+			ConnMaxLifetime: p.duration("DB_CONN_MAX_LIFETIME", time.Hour),
+			ConnMaxIdleTime: p.duration("DB_CONN_MAX_IDLE_TIME", 15*time.Minute),
 		},
 		Bootstrap: BootstrapConfig{
 			AdminUsername: firstNonEmpty(strings.TrimSpace(os.Getenv("BOOTSTRAP_ADMIN_USERNAME")), "admin"),
@@ -120,6 +145,20 @@ func Load() (Config, error) {
 
 	if origins := parseCSVEnv("CORS_ALLOW_ORIGINS"); len(origins) > 0 {
 		cfg.CORS.AllowedOrigins = origins
+	}
+	if cfg.Metrics.Enabled() {
+		switch {
+		case cfg.Metrics.Port < 1 || cfg.Metrics.Port > 65535:
+			p.errs = append(p.errs, fmt.Errorf("METRICS_PORT must be between 1 and 65535, got %d", cfg.Metrics.Port))
+		case strconv.Itoa(cfg.Metrics.Port) == cfg.Server.Port:
+			p.errs = append(p.errs, fmt.Errorf("METRICS_PORT must differ from PORT"))
+		}
+		if len(cfg.Metrics.Token) < minMetricsTokenLength {
+			p.errs = append(p.errs, fmt.Errorf("METRICS_TOKEN must be at least %d characters when METRICS_PORT is set", minMetricsTokenLength))
+		}
+	}
+	if err := errors.Join(p.errs...); err != nil {
+		return Config{}, err
 	}
 
 	secretKey, err := parseHexKey("SECRET_KEY", 32)
@@ -151,6 +190,11 @@ func Load() (Config, error) {
 
 	if len(cfg.Auth.Cookie.Domain) > 0 && strings.Contains(cfg.Auth.Cookie.Domain, "://") {
 		return Config{}, fmt.Errorf("COOKIE_DOMAIN must be a hostname, not a URL")
+	}
+	// Browsers reject SameSite=None cookies without Secure, and without SameSite
+	// the session cookie would also ride along on cross-site requests.
+	if cfg.Auth.Cookie.SameSite == http.SameSiteNoneMode && !cfg.Auth.Cookie.Secure {
+		return Config{}, fmt.Errorf("COOKIE_SAMESITE=none requires COOKIE_SECURE=true")
 	}
 
 	if err := validateDatabaseURL(cfg.Database.URL); err != nil {
@@ -210,43 +254,78 @@ func parseCSVEnv(name string) []string {
 	return result
 }
 
-func parseBoolEnv(name string, defaultValue bool) bool {
+// envParser reads typed environment variables and records every invalid
+// value, so Load can report them all at once.
+type envParser struct {
+	errs []error
+}
+
+func (p *envParser) fail(name, raw, want string) {
+	p.errs = append(p.errs, fmt.Errorf("%s: %q is not %s", name, raw, want))
+}
+
+func (p *envParser) bool(name string, defaultValue bool) bool {
 	raw := strings.TrimSpace(os.Getenv(name))
 	if raw == "" {
 		return defaultValue
 	}
-
 	parsed, err := strconv.ParseBool(raw)
 	if err != nil {
+		p.fail(name, raw, "a boolean (true or false)")
 		return defaultValue
 	}
 	return parsed
 }
 
-func parseIntEnv(name string, defaultValue int) int {
+func (p *envParser) int(name string, defaultValue int) int {
 	raw := strings.TrimSpace(os.Getenv(name))
 	if raw == "" {
 		return defaultValue
 	}
-
 	parsed, err := strconv.Atoi(raw)
 	if err != nil {
+		p.fail(name, raw, "an integer")
 		return defaultValue
 	}
 	return parsed
 }
 
-func parseDurationEnv(name string, defaultValue time.Duration) time.Duration {
+func (p *envParser) duration(name string, defaultValue time.Duration) time.Duration {
 	raw := strings.TrimSpace(os.Getenv(name))
 	if raw == "" {
 		return defaultValue
 	}
-
 	parsed, err := time.ParseDuration(raw)
 	if err != nil {
+		p.fail(name, raw, "a duration such as 30s, 15m or 24h")
 		return defaultValue
 	}
 	return parsed
+}
+
+func (p *envParser) oneOf(name, defaultValue string, allowed ...string) string {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	if raw == "" {
+		return defaultValue
+	}
+	if slices.Contains(allowed, raw) {
+		return raw
+	}
+	p.fail(name, raw, "one of "+strings.Join(allowed, ", "))
+	return defaultValue
+}
+
+func (p *envParser) sameSite(name string, defaultValue http.SameSite) http.SameSite {
+	switch p.oneOf(name, "", "lax", "strict", "none") {
+	case "lax":
+		return http.SameSiteLaxMode
+	case "strict":
+		return http.SameSiteStrictMode
+	case "none":
+		return http.SameSiteNoneMode
+	default:
+		return defaultValue
+	}
 }
 
 func parseDatabaseURL() string {
@@ -292,19 +371,4 @@ func deriveKey(master []byte, info string) ([]byte, error) {
 		return nil, err
 	}
 	return key, nil
-}
-
-func parseSameSiteEnv(name string, defaultValue http.SameSite) http.SameSite {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
-	case "":
-		return defaultValue
-	case "lax":
-		return http.SameSiteLaxMode
-	case "strict":
-		return http.SameSiteStrictMode
-	case "none":
-		return http.SameSiteNoneMode
-	default:
-		return defaultValue
-	}
 }

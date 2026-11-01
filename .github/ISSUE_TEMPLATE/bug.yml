@@ -1,0 +1,62 @@
+name: Bug report
+description: The console, its UI or the image did something wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security problems go to [Report a vulnerability](https://github.com/wgkeeper/wgkeeper-console/security/advisories/new), not here.
+        Remove passwords, `SECRET_KEY`, node API keys, session cookies and public IPs from everything you paste.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Image tag, or the version shown in the console.
+      placeholder: 2.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - Docker Compose
+        - Docker Compose behind a reverse proxy
+        - Other container setup
+        - Built from source
+    validations:
+      required: true
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database
+      options:
+        - SQLite
+        - PostgreSQL
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser
+      description: Only for UI problems.
+      placeholder: Firefox 140, macOS
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, and the error or behavior you got.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Console logs around the problem (`docker compose logs wgkeeper-console`).
+      render: text

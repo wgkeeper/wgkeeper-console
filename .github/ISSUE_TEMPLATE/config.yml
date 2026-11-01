@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security issue
+    url: https://github.com/wgkeeper/wgkeeper-console/security/advisories/new
+    about: Report it privately, not in a public issue (see SECURITY.md).
+  - name: Documentation
+    url: https://wgkeeper.github.io/docs/console/installation
+    about: Installation and configuration docs.

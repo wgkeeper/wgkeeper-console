@@ -1,0 +1,43 @@
+# Caddy in front of the console: HTTPS with an automatic Let's Encrypt certificate.
+#
+# Adds a caddy service on top of the main Compose file. Run from the directory
+# with docker-compose.yml; paths below are relative to it:
+#
+#   docker compose -f docker-compose.yml -f examples/caddy/compose.yml up -d
+#
+# Edit examples/caddy/Caddyfile first. The console's own port stays on
+# 127.0.0.1 only; Caddy reaches it over the Docker network at console:8000.
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      console:
+        condition: service_healthy
+    volumes:
+      - ./examples/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  console:
+    environment:
+      # Secure cookies: the browser reaches the console over HTTPS only.
+      COOKIE_SECURE: "true"
+      # Trust X-Forwarded-For from Caddy, so login rate limits apply per real
+      # client instead of to everyone at once. The console port is published on
+      # the host's loopback only, so only containers and this host reach it.
+      TRUSTED_PROXIES: 172.16.0.0/12,192.168.0.0/16,10.0.0.0/8
+
+volumes:
+  caddy_data:
+  caddy_config:

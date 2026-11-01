@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+
 	"wg-keeper-backend/internal/auth"
 	"wg-keeper-backend/internal/database"
 	"wg-keeper-backend/internal/models"
@@ -45,7 +46,7 @@ func TestAuthMiddlewareAcceptsValidToken(t *testing.T) {
 		t.Fatalf("db.Create() error = %v", err)
 	}
 
-	token, err := auth.CreateToken(user)
+	token, _, err := auth.CreateToken(user)
 	if err != nil {
 		t.Fatalf("CreateToken() error = %v", err)
 	}

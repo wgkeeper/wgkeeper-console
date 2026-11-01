@@ -4,13 +4,21 @@ export type NodeListResponse = {
   page: number;
   pageSize: number;
   totalPages: number;
+  /** Status counts across the whole fleet, not just this page. */
+  summary?: FleetSummary;
+};
+
+export type FleetSummary = {
+  online: number;
+  offline: number;
+  outdated: number;
 };
 
 export type NodeItem = {
   id: string; // UUID, main identifier
   name: string;
   address: string; // full base URL, e.g. https://192.168.1.1:51821
-  status: 'online' | 'offline' | (string & {});
+  status: 'online' | 'offline' | (string & Record<never, never>);
   version: string | null;
   isOutdated: boolean;
   latestVersion: string | null;

@@ -12,6 +12,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+
 	"wg-keeper-backend/internal/auth"
 	"wg-keeper-backend/internal/config"
 	"wg-keeper-backend/internal/database"
@@ -117,19 +118,19 @@ func TestAuthHandlerChangePassword(t *testing.T) {
 		{
 			name:       "password not allowed",
 			user:       models.User{ID: "u0", Username: "admin", PasswordHash: string(currentHash)},
-			body:       ChangePasswordRequest{CurrentPassword: ptr("old-secret"), NewPassword: "admin"},
+			body:       ChangePasswordRequest{CurrentPassword: new("old-secret"), NewPassword: "admin"},
 			wantStatus: http.StatusBadRequest, wantError: "password_not_allowed",
 		},
 		{
 			name:       "too short",
 			user:       models.User{ID: "u1", Username: "admin", PasswordHash: string(currentHash)},
-			body:       ChangePasswordRequest{CurrentPassword: ptr("old-secret"), NewPassword: "short"},
+			body:       ChangePasswordRequest{CurrentPassword: new("old-secret"), NewPassword: "short"},
 			wantStatus: http.StatusBadRequest, wantError: "password_too_short",
 		},
 		{
 			name:       "invalid current password",
 			user:       models.User{ID: "u1x", Username: "admin", PasswordHash: string(currentHash)},
-			body:       ChangePasswordRequest{CurrentPassword: ptr("wrong"), NewPassword: "new-secret-123"},
+			body:       ChangePasswordRequest{CurrentPassword: new("wrong"), NewPassword: "new-secret-123"},
 			wantStatus: http.StatusBadRequest, wantError: "invalid_current_password",
 		},
 		{
@@ -147,7 +148,7 @@ func TestAuthHandlerChangePassword(t *testing.T) {
 		{
 			name:       "success with current password",
 			user:       models.User{ID: "u4", Username: "admin", PasswordHash: string(currentHash)},
-			body:       ChangePasswordRequest{CurrentPassword: ptr("old-secret"), NewPassword: "new-secret-123"},
+			body:       ChangePasswordRequest{CurrentPassword: new("old-secret"), NewPassword: "new-secret-123"},
 			wantStatus: http.StatusOK, checkDBPassword: true,
 		},
 	}
@@ -346,8 +347,4 @@ func newJSONRequest(t *testing.T, method string, path string, body any) *http.Re
 	req := httptest.NewRequest(method, path, bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	return req
-}
-
-func ptr[T any](value T) *T {
-	return &value
 }

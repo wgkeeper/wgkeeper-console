@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { fetchErrorMessage } from '@/lib/api-client';
-import { AlertCircle, CheckCircle2, UserCircle2 } from 'lucide-react';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { CircleAlertIcon, MonitorIcon, MoonIcon, SunIcon } from 'lucide-react';
+import { toast } from 'sonner';
+import { Alert, AlertTitle } from '@/components/ui/alert';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
@@ -10,10 +12,13 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
+import { Spinner } from '@/components/ui/spinner';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { PageHeader } from '@/components/layout/PageHeader';
+import { type Theme, useTheme } from '@/components/theme-provider';
+import { fetchErrorMessage } from '@/lib/api-client';
 
 type Props = {
   apiFetch: (path: string, options?: RequestInit) => Promise<Response>;
@@ -21,12 +26,12 @@ type Props = {
 };
 
 export const ProfilePage = ({ apiFetch, initialUsername }: Props) => {
+  const { theme, setTheme } = useTheme();
   const [username, setUsername] = useState(initialUsername ?? '');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -47,21 +52,20 @@ export const ProfilePage = ({ apiFetch, initialUsername }: Props) => {
     void loadMe();
   }, [apiFetch, username]);
 
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
-    setNotice('');
 
     if (!currentPassword.trim() || !newPassword.trim()) {
-      setError('Fill in current and new password.');
+      setError('Enter your current and new password.');
       return;
     }
     if (newPassword.length < 8) {
-      setError('New password is too short (minimum 8 characters).');
+      setError('The new password needs at least 8 characters.');
       return;
     }
     if (newPassword !== confirmPassword) {
-      setError('New password and confirmation do not match.');
+      setError('The new password and its confirmation do not match.');
       return;
     }
 
@@ -79,18 +83,18 @@ export const ProfilePage = ({ apiFetch, initialUsername }: Props) => {
         try {
           const body = (await res.json()) as { error?: string };
           if (body?.error === 'password_too_short') {
-            setError('New password is too short (minimum 8 characters).');
+            setError('The new password needs at least 8 characters.');
           } else if (body?.error === 'password_not_allowed') {
             setError("The password 'admin' is not allowed. Choose a different password.");
           } else if (body?.error === 'current_password_required') {
-            setError('Current password is required.');
+            setError('Enter your current password.');
           } else if (body?.error === 'invalid_current_password') {
-            setError('Current password is incorrect.');
+            setError('The current password is incorrect.');
           } else {
-            setError('Unable to change password. Please try again.');
+            setError('The password was not changed. Try again.');
           }
         } catch {
-          setError('Unable to change password. Please try again.');
+          setError('The password was not changed. Try again.');
         }
         return;
       }
@@ -98,99 +102,134 @@ export const ProfilePage = ({ apiFetch, initialUsername }: Props) => {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      setNotice('Password has been updated.');
+      toast.success('Password changed', {
+        description: 'Other sessions for this account were signed out.',
+      });
     } catch (err) {
-      setError(fetchErrorMessage(err) ?? 'Unable to change password. Please try again.');
+      setError(fetchErrorMessage(err) ?? 'The password was not changed. Try again.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const name = username || 'admin';
+
   return (
-    <div className="flex max-w-lg flex-col gap-4">
+    <div className="flex max-w-3xl flex-col gap-6">
+      <PageHeader title="Profile" description="Your console account and preferences." />
+
       <Card>
-        {username ? (
-          <>
-            <CardContent className="flex items-center gap-3 px-5 py-4">
-              <div className="flex size-9 flex-shrink-0 items-center justify-center rounded-full bg-muted">
-                <UserCircle2 className="size-4 text-muted-foreground" />
-              </div>
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-medium">@{username}</span>
-                <span className="text-xs text-muted-foreground">Console account</span>
-              </div>
-            </CardContent>
-            <Separator />
-          </>
-        ) : null}
-        <CardHeader className="pb-4">
-          <CardTitle className="text-base">Change password</CardTitle>
-          <CardDescription>Use a strong password that you do not reuse elsewhere.</CardDescription>
+        <CardHeader>
+          <CardTitle>
+            <h2>Account</h2>
+          </CardTitle>
+          <CardDescription>The account you are signed in with.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex items-center gap-3">
+          <Avatar className="size-10 rounded-lg">
+            <AvatarFallback className="rounded-lg">{name.slice(0, 2).toUpperCase()}</AvatarFallback>
+          </Avatar>
+          <div className="flex flex-col">
+            <span className="font-medium">{name}</span>
+            <span className="text-sm text-muted-foreground">Administrator</span>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <h2>Appearance</h2>
+          </CardTitle>
+          <CardDescription>System follows the theme of your operating system.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form id="change-password-form" className="flex flex-col gap-4" onSubmit={handleSubmit}>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="currentPassword" className="text-sm font-medium">
-                Current password
-              </Label>
-              <Input
-                id="currentPassword"
-                name="currentPassword"
-                type="password"
-                autoComplete="current-password"
-                value={currentPassword}
-                onChange={(event) => setCurrentPassword(event.target.value)}
-                required
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="newPassword" className="text-sm font-medium">
-                New password
-              </Label>
-              <Input
-                id="newPassword"
-                name="newPassword"
-                type="password"
-                autoComplete="new-password"
-                placeholder="Min. 8 characters"
-                value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-                required
-                minLength={8}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="confirmPassword" className="text-sm font-medium">
-                Confirm new password
-              </Label>
-              <Input
-                id="confirmPassword"
-                name="confirmPassword"
-                type="password"
-                autoComplete="new-password"
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                required
-              />
-            </div>
-            {notice ? (
-              <Alert variant="success">
-                <CheckCircle2 />
-                <AlertDescription>{notice}</AlertDescription>
-              </Alert>
-            ) : null}
-            {error ? (
-              <Alert variant="destructive">
-                <AlertCircle />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            ) : null}
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            value={theme}
+            onValueChange={(value) => value && setTheme(value as Theme)}
+            aria-label="Theme"
+          >
+            <ToggleGroupItem value="light" className="px-3">
+              <SunIcon />
+              Light
+            </ToggleGroupItem>
+            <ToggleGroupItem value="dark" className="px-3">
+              <MoonIcon />
+              Dark
+            </ToggleGroupItem>
+            <ToggleGroupItem value="system" className="px-3">
+              <MonitorIcon />
+              System
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <h2>Password</h2>
+          </CardTitle>
+          <CardDescription>
+            Changing it signs out every other session of this account.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form id="change-password-form" onSubmit={handleSubmit}>
+            <FieldGroup className="max-w-sm">
+              <Field>
+                <FieldLabel htmlFor="currentPassword">Current password</FieldLabel>
+                <Input
+                  id="currentPassword"
+                  name="currentPassword"
+                  type="password"
+                  autoComplete="current-password"
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  required
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="newPassword">New password</FieldLabel>
+                <Input
+                  id="newPassword"
+                  name="newPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  required
+                  minLength={8}
+                />
+                <FieldDescription>At least 8 characters.</FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="confirmPassword">Confirm new password</FieldLabel>
+                <Input
+                  id="confirmPassword"
+                  name="confirmPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  required
+                />
+              </Field>
+              {error ? (
+                <Alert variant="destructive">
+                  <CircleAlertIcon />
+                  <AlertTitle>{error}</AlertTitle>
+                </Alert>
+              ) : null}
+            </FieldGroup>
           </form>
         </CardContent>
-        <Separator />
-        <CardFooter className="flex justify-end pt-4">
+        <CardFooter className="justify-end border-t">
           <Button type="submit" form="change-password-form" disabled={isSubmitting}>
-            {isSubmitting ? 'Saving…' : 'Save password'}
+            {isSubmitting ? <Spinner /> : null}
+            Change password
           </Button>
         </CardFooter>
       </Card>

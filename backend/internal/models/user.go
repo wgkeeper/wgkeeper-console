@@ -11,13 +11,15 @@ import (
 )
 
 type User struct {
-	ID                 string    `gorm:"primaryKey;type:uuid" json:"id"`
-	Username           string    `gorm:"type:varchar(32);uniqueIndex;not null" json:"username"`
-	PasswordHash       string    `gorm:"type:varchar(72);not null" json:"-"`
-	IsAdmin            bool      `gorm:"not null;default:false" json:"isAdmin"`
-	MustChangePassword bool      `gorm:"not null;default:false" json:"mustChangePassword"`
-	CreatedAt          time.Time `gorm:"autoCreateTime;not null" json:"createdAt"`
-	UpdatedAt          time.Time `gorm:"autoUpdateTime;not null" json:"updatedAt"`
+	ID                 string `gorm:"primaryKey;type:uuid" json:"id"`
+	Username           string `gorm:"type:varchar(32);uniqueIndex;not null" json:"username"`
+	PasswordHash       string `gorm:"type:varchar(72);not null" json:"-"`
+	IsAdmin            bool   `gorm:"not null;default:false" json:"isAdmin"`
+	MustChangePassword bool   `gorm:"not null;default:false" json:"mustChangePassword"`
+	// SessionVersion is embedded in session tokens; bumping it revokes them all.
+	SessionVersion int       `gorm:"not null;default:0" json:"-"`
+	CreatedAt      time.Time `gorm:"autoCreateTime;not null" json:"createdAt"`
+	UpdatedAt      time.Time `gorm:"autoUpdateTime;not null" json:"updatedAt"`
 }
 
 func (User) TableName() string { return "users" }

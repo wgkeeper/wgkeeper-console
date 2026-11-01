@@ -1,0 +1,20 @@
+{
+	# Global options block (optional)
+	# email you@example.com
+}
+
+# Caddy gets and renews a Let's Encrypt certificate for this domain
+# automatically when ports 80 and 443 are reachable.
+console.example.com {
+	encode gzip zstd
+
+	# Optional: allow only your own addresses (office, VPN). Everyone else is
+	# dropped before reaching the console.
+	# @blocked not remote_ip 203.0.113.7
+	# abort @blocked
+
+	# The console over the Docker network (Caddy installed on the host:
+	# 127.0.0.1:8000). The port must match PORT. Caddy sets X-Forwarded-For,
+	# which the console uses for rate limits when TRUSTED_PROXIES allows it.
+	reverse_proxy console:8000
+}

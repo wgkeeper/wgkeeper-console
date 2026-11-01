@@ -7,11 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
 	"wg-keeper-backend/internal/config"
 	"wg-keeper-backend/internal/models"
 )
@@ -34,7 +36,10 @@ func Init() error {
 	slog.Info("database", "driver", driver)
 
 	DB, err = gorm.Open(dialector, &gorm.Config{
-		Logger: gormLogger(),
+		// Map driver errors to gorm.ErrDuplicatedKey and friends, so a unique
+		// constraint violation can be told apart from other failures.
+		TranslateError: true,
+		Logger:         gormLogger(),
 	})
 	if err != nil {
 		return fmt.Errorf("database: open: %w", err)
@@ -46,6 +51,12 @@ func Init() error {
 
 	if err := widenAPIKeyColumn(DB, driver); err != nil {
 		return fmt.Errorf("database: widen api_key: %w", err)
+	}
+
+	if n, err := models.EncryptLegacySecrets(DB); err != nil {
+		return fmt.Errorf("database: encrypt api keys: %w", err)
+	} else if n > 0 {
+		slog.Info("database: encrypted plaintext node API keys", "count", n)
 	}
 
 	cfg := config.Current()
@@ -85,12 +96,32 @@ func dialectorFromURL(dbURL string) (gorm.Dialector, string, error) {
 	return sqlite.Open(dsn), "sqlite", nil
 }
 
-// gormLogger returns Silent logger in production and Info logger when DEBUG=true.
+// gormLogger routes gorm through slog. Queries are logged with placeholders,
+// never values, so password hashes and API keys stay out of the log; slow
+// queries are logged even without DEBUG.
 func gormLogger() logger.Interface {
+	level := logger.Warn
 	if config.Current().Debug {
-		return logger.Default.LogMode(logger.Info)
+		level = logger.Info
 	}
-	return logger.Default.LogMode(logger.Silent)
+	return logger.NewSlogLogger(slog.Default(), logger.Config{
+		SlowThreshold:             500 * time.Millisecond,
+		LogLevel:                  level,
+		IgnoreRecordNotFoundError: true,
+		ParameterizedQueries:      true,
+	})
+}
+
+// Close closes the database connection pool.
+func Close() error {
+	if DB == nil {
+		return nil
+	}
+	sqlDB, err := DB.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
 }
 
 // isPostgresURL reports whether the URL targets a PostgreSQL server.
@@ -105,7 +136,8 @@ func sqliteDSN(dbURL string) (string, error) {
 	dsn := strings.TrimPrefix(dbURL, "file:")
 	dir := filepath.Dir(dsn)
 	if dir != "." && dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		// The database holds password hashes and node API keys; keep it private.
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return "", fmt.Errorf("create dir %q: %w", dir, err)
 		}
 	}

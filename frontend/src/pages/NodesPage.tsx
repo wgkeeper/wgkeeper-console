@@ -1,33 +1,66 @@
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import {
-  AlertCircle,
-  CheckCircle2,
-  ChevronRight,
-  RefreshCw,
-  Server,
-  TriangleAlert,
+  type ColumnDef,
+  flexRender,
+  getCoreRowModel,
+  getFilteredRowModel,
+  useReactTable,
+} from '@tanstack/react-table';
+import {
+  ArrowUpCircleIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  CircleAlertIcon,
+  CopyIcon,
+  ExternalLinkIcon,
+  MoreHorizontalIcon,
+  PlusIcon,
+  RefreshCwIcon,
+  SearchIcon,
+  ServerIcon,
+  Trash2Icon,
 } from 'lucide-react';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Skeleton } from '@/components/ui/skeleton';
-import { NodeStatusBadge } from '@/components/nodes/NodeStatusBadge';
 import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from '@/components/ui/pagination';
-import type { NodeCheckResult, NodeItem } from '../types';
-import { NODES_PAGE_SIZE } from '@/lib/peer-utils';
-import { rateLimitMessage } from '@/lib/api-client';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty';
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { copyToClipboard } from '@/components/CopyButton';
+import { PageHeader } from '@/components/layout/PageHeader';
+import { AddNodeDialog } from '@/components/nodes/AddNodeDialog';
+import { DeleteNodeDialog } from '@/components/nodes/DeleteNodeDialog';
+import { NodeStatusBadge } from '@/components/nodes/NodeStatusBadge';
+import { nodeHost, nodeScheme, shortId } from '@/lib/node-utils';
+import { NODES_PAGE_SIZE, formatDate, formatRelative } from '@/lib/peer-utils';
+import { cn } from '@/lib/utils';
+import { usePatchSearchParams, useSearchParam } from '@/hooks/use-search-param';
+import type { FleetSummary, NodeItem } from '@/types';
 
 type Props = {
   nodes: NodeItem[];
@@ -36,9 +69,83 @@ type Props = {
   nodesTotal: number;
   nodesLoading?: boolean;
   nodesError?: string | null;
+  nodesSummary: FleetSummary | null;
   apiFetch: (path: string, options?: RequestInit) => Promise<Response>;
-  onReloadNodes: (page?: number) => Promise<void>;
+  onReloadNodes: (page?: number) => Promise<boolean>;
+  onRefreshNodes: () => Promise<void>;
 };
+
+type StatusFilter = 'all' | 'online' | 'offline' | 'outdated';
+
+const STATUS_FILTERS = new Set<string>(['all', 'online', 'offline', 'outdated']);
+
+// Stable keys for loading placeholders: there's no data to key them by yet.
+const SKELETON_ROWS = ['row-1', 'row-2', 'row-3', 'row-4', 'row-5'];
+
+const matchesStatus = (node: NodeItem, filter: StatusFilter) => {
+  if (filter === 'all') return true;
+  if (filter === 'outdated') return node.isOutdated;
+  return node.status === filter;
+};
+
+const columns: ColumnDef<NodeItem>[] = [
+  {
+    id: 'node',
+    header: 'Node',
+    accessorFn: (node) => `${node.address} ${node.id} ${node.version ?? ''}`,
+    cell: ({ row }) => (
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <Link
+          to={`/nodes/${row.original.id}`}
+          className="truncate rounded-sm font-mono text-[0.8125rem] font-medium outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {nodeHost(row.original.address)}
+        </Link>
+        <span className="font-mono text-xs text-muted-foreground">{shortId(row.original.id)}</span>
+      </div>
+    ),
+  },
+  {
+    id: 'status',
+    header: 'Status',
+    cell: ({ row }) => <NodeStatusBadge status={row.original.status} />,
+  },
+  {
+    id: 'version',
+    header: 'Version',
+    cell: ({ row }) => <VersionCell node={row.original} />,
+  },
+  {
+    id: 'api',
+    header: 'API',
+    cell: ({ row }) => (
+      <span className="font-mono text-xs text-muted-foreground">
+        {nodeScheme(row.original.address) ?? '—'}
+      </span>
+    ),
+  },
+  {
+    id: 'added',
+    header: 'Added',
+    cell: ({ row }) => (
+      <span className="text-muted-foreground" title={formatDate(row.original.createdAt)}>
+        {formatRelative(row.original.createdAt)}
+      </span>
+    ),
+  },
+  {
+    id: 'actions',
+    header: () => <span className="sr-only">Actions</span>,
+    cell: ({ row, table }) => (
+      <NodeActions
+        node={row.original}
+        onOpen={() => table.options.meta?.onOpen?.(row.original.id)}
+        onDelete={() => table.options.meta?.onDelete?.(row.original.id)}
+      />
+    ),
+  },
+];
 
 export const NodesPage = ({
   nodes,
@@ -47,472 +154,432 @@ export const NodesPage = ({
   nodesTotal,
   nodesLoading,
   nodesError,
+  nodesSummary,
   apiFetch,
   onReloadNodes,
+  onRefreshNodes,
 }: Props) => {
-  const [nodeForm, setNodeForm] = useState({
-    address: '',
-    apiKey: '',
+  const navigate = useNavigate();
+  // Filters, the page and the open dialog live in the URL, so reload and the
+  // back button keep them.
+  const [addParam, setAddParam] = useSearchParam('add');
+  const [search, setSearch] = useSearchParam('q');
+  const [statusParam, setStatusParam] = useSearchParam('status', 'all');
+  const [pageParam] = useSearchParam('page', '1');
+  const patchParams = usePatchSearchParams();
+  const statusFilter: StatusFilter = STATUS_FILTERS.has(statusParam)
+    ? (statusParam as StatusFilter)
+    : 'all';
+  const requestedPage = Math.max(1, Math.trunc(Number(pageParam)) || 1);
+  const deferredSearch = useDeferredValue(search);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [deleteNode, setDeleteNode] = useState<NodeItem | null>(null);
+
+  const addOpen = addParam === '1';
+  const setAddOpen = (open: boolean) => setAddParam(open ? '1' : '');
+  const goToPage = (page: number) => patchParams({ page: page > 1 ? String(page) : null });
+
+  // Follow the page in the URL; App keeps the list it loaded last.
+  useEffect(() => {
+    if (requestedPage !== nodesPage) void onReloadNodes(requestedPage);
+    // Only the URL drives this: nodesPage catching up must not trigger a reload.
+    // oxlint-disable-next-line react/exhaustive-deps
+  }, [requestedPage]);
+
+  const latest = useMemo(() => nodes.find((n) => n.latestVersion) ?? null, [nodes]);
+
+  const filtered = useMemo(
+    () => nodes.filter((node) => matchesStatus(node, statusFilter)),
+    [nodes, statusFilter],
+  );
+
+  const table = useReactTable({
+    data: filtered,
+    columns,
+    state: { globalFilter: deferredSearch },
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getRowId: (node) => node.id,
+    meta: {
+      onOpen: (id) => void navigate(`/nodes/${id}`),
+      onDelete: (id) => setDeleteNode(nodes.find((node) => node.id === id) ?? null),
+    },
   });
-  const [nodeCheck, setNodeCheck] = useState<NodeCheckResult | null>(null);
-  const [nodeCheckError, setNodeCheckError] = useState('');
-  const [isCheckingNode, setIsCheckingNode] = useState(false);
-  const [isCreatingNode, setIsCreatingNode] = useState(false);
-  const [isRefreshingNodes, setIsRefreshingNodes] = useState(false);
 
-  const pageLabel = useMemo(() => {
-    const from = (nodesPage - 1) * NODES_PAGE_SIZE + 1;
-    const to = Math.min(nodesPage * NODES_PAGE_SIZE, nodesTotal);
-    return nodesTotal > 0 ? `${from}–${to} of ${nodesTotal}` : '';
-  }, [nodesPage, nodesTotal]);
-  const statusSummary = useMemo(() => {
-    const online = nodes.filter((n) => n.status === 'online').length;
-    const offline = nodes.filter((n) => n.status === 'offline').length;
-    const other = nodes.length - online - offline;
-    const outdated = nodes.filter((n) => n.isOutdated).length;
-    return { online, offline, other, outdated };
-  }, [nodes]);
-  const latestRelease = useMemo(() => {
-    const latestVersion = nodes.find((node) => node.latestVersion)?.latestVersion ?? null;
-    const latestVersionUrl = nodes.find((node) => node.latestVersionUrl)?.latestVersionUrl ?? null;
-    return latestVersion ? { version: latestVersion, url: latestVersionUrl } : null;
-  }, [nodes]);
-
-  const updateNodeForm = (updater: React.SetStateAction<typeof nodeForm>) => {
-    setNodeForm(updater);
-    setNodeCheck(null);
-    setNodeCheckError('');
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await onRefreshNodes();
+    setIsRefreshing(false);
   };
 
-  const handleCreateNode = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setNodeCheckError('');
-
-    if (!nodeCheck?.ok) {
-      setNodeCheckError('Check the node first.');
-      return;
-    }
-
-    const address = nodeForm.address.trim();
-    const apiKey = nodeForm.apiKey.trim();
-
-    if (!address || !apiKey) {
-      setNodeCheckError('Fill in address and X_API_KEY.');
-      return;
-    }
-
-    if (nodeCheck.address !== address) {
-      setNodeCheckError('Check is outdated, please re-check the node.');
-      return;
-    }
-
-    setIsCreatingNode(true);
-    const res = await apiFetch('/api/nodes', {
-      method: 'POST',
-      body: JSON.stringify({ address, apiKey }),
-    });
-
-    if (res.ok) {
-      setNodeForm({ address: '', apiKey: '' });
-      setNodeCheck(null);
-      await onReloadNodes(1);
-    } else {
-      setNodeCheck(null);
-      let message = rateLimitMessage(res) ?? 'Failed to add node. Please try again.';
-      if (!rateLimitMessage(res)) {
-        try {
-          const body = (await res.json()) as { error?: string };
-          if (body?.error === 'node_exists' || res.status === 409) {
-            message = 'A node with this address already exists.';
-          } else if (body?.error === 'invalid_input') {
-            message = 'Address or X_API_KEY is invalid.';
-          }
-        } catch {
-          if (res.status === 409) {
-            message = 'A node with this address already exists.';
-          }
-        }
-      }
-      setNodeCheckError(message);
-    }
-    setIsCreatingNode(false);
-  };
-
-  const handleCheckNode = async () => {
-    setNodeCheckError('');
-    const address = nodeForm.address.trim();
-    const apiKey = nodeForm.apiKey.trim();
-
-    if (!address || !apiKey) {
-      setNodeCheckError('Fill in address and X_API_KEY.');
-      return;
-    }
-
-    setIsCheckingNode(true);
-    const res = await apiFetch('/api/nodes/check', {
-      method: 'POST',
-      body: JSON.stringify({ address, apiKey }),
-    });
-
-    if (!res.ok) {
-      setNodeCheck(null);
-      let errorMessage = rateLimitMessage(res) ?? 'Node is not responding.';
-      if (!rateLimitMessage(res)) {
-        try {
-          const errorBody = (await res.json()) as { error?: string };
-          if (errorBody?.error === 'invalid_api_key') {
-            errorMessage = 'Invalid X_API_KEY.';
-          }
-        } catch {
-          // ignore parse error, fall back to default message
-        }
-      }
-      setNodeCheckError(errorMessage);
-      setIsCheckingNode(false);
-      return;
-    }
-
-    const data = (await res.json()) as Omit<NodeCheckResult, 'address'>;
-    setNodeCheck({ ...data, address });
-    if (!data.ok) {
-      setNodeCheckError('Node is not responding.');
-    }
-    setIsCheckingNode(false);
-  };
-
-  const handleRefreshNodes = async () => {
-    setIsRefreshingNodes(true);
-    try {
-      await apiFetch('/api/nodes/refresh', { method: 'POST' });
-    } catch {
-      // ignore error, still try reload list
-    }
-    await onReloadNodes(1);
-    setIsRefreshingNodes(false);
-  };
-
-  const total = nodes.length;
-  const pct = (count: number) => (total > 0 ? `${(count / total) * 100}%` : '0%');
+  const from = (nodesPage - 1) * NODES_PAGE_SIZE + 1;
+  const to = Math.min(nodesPage * NODES_PAGE_SIZE, nodesTotal);
+  const rows = table.getRowModel().rows;
+  const hasNodes = nodes.length > 0;
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Add node */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Add node</CardTitle>
-          <CardDescription>Connect a WireGuard node through its API.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form className="flex flex-col gap-4" onSubmit={handleCreateNode}>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="address">Node address</Label>
-                <Input
-                  id="address"
-                  name="address"
-                  className="font-mono"
-                  placeholder="https://10.0.0.1:51821"
-                  value={nodeForm.address}
-                  onChange={(event) =>
-                    updateNodeForm((prev) => ({ ...prev, address: event.target.value }))
-                  }
-                  required
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="apiKey">API key (X_API_KEY)</Label>
-                <Input
-                  id="apiKey"
-                  name="apiKey"
-                  type="password"
-                  autoComplete="off"
-                  className="font-mono"
-                  placeholder="••••••••••••"
-                  value={nodeForm.apiKey}
-                  onChange={(event) =>
-                    updateNodeForm((prev) => ({ ...prev, apiKey: event.target.value }))
-                  }
-                  required
-                />
-              </div>
-            </div>
-            {nodeCheck?.ok ? (
-              <Alert variant="success">
-                <CheckCircle2 />
-                <AlertDescription>
-                  Node detected:{' '}
-                  <span className="font-medium">{nodeCheck.serviceName ?? nodeCheck.address}</span>
-                  {nodeCheck.version ? `, version ${nodeCheck.version}` : null}
-                </AlertDescription>
-              </Alert>
-            ) : null}
-            {nodeCheckError ? (
-              <Alert variant="destructive">
-                <AlertCircle />
-                <AlertDescription>{nodeCheckError}</AlertDescription>
-              </Alert>
-            ) : null}
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleCheckNode}
-                disabled={isCheckingNode}
-              >
-                {isCheckingNode ? 'Checking…' : 'Check node'}
-              </Button>
-              <Button type="submit" disabled={!nodeCheck?.ok || isCreatingNode}>
-                {isCreatingNode ? 'Saving…' : 'Save node'}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      <PageHeader
+        title="Nodes"
+        description="WireGuard nodes this console manages through their API."
+        actions={
+          <>
+            <Button variant="outline" disabled={isRefreshing} onClick={() => void handleRefresh()}>
+              <RefreshCwIcon className={cn(isRefreshing && 'animate-spin')} />
+              Refresh
+            </Button>
+            <Button onClick={() => setAddOpen(true)}>
+              <PlusIcon />
+              Add node
+            </Button>
+          </>
+        }
+      />
 
-      {/* Nodes */}
-      <Card>
-        <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
-          <div className="flex flex-col gap-1">
-            <CardTitle>Nodes</CardTitle>
-            <CardDescription>
-              {latestRelease ? (
-                <>
-                  Latest wgkeeper-node v{latestRelease.version}
-                  {latestRelease.url ? (
-                    <>
-                      {' · '}
-                      <a
-                        href={latestRelease.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="font-medium text-foreground underline-offset-4 hover:underline"
-                      >
-                        release notes
-                      </a>
-                    </>
-                  ) : null}
-                </>
-              ) : (
-                'Connected WireGuard nodes'
-              )}
-            </CardDescription>
-          </div>
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="tabular-nums">
-              {nodesTotal}
-            </Badge>
+      {hasNodes ? (
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border shadow-xs lg:grid-cols-4">
+          <Summary label="Nodes" value={nodesTotal} />
+          <Summary label="Online" value={nodesSummary?.online} tone="success" />
+          <Summary
+            label="Offline"
+            value={nodesSummary?.offline}
+            tone={(nodesSummary?.offline ?? 0) > 0 ? 'destructive' : undefined}
+          />
+          <Summary
+            label="Updates available"
+            value={nodesSummary?.outdated}
+            tone={(nodesSummary?.outdated ?? 0) > 0 ? 'warning' : undefined}
+            hint={
+              latest?.latestVersion ? (
+                latest.latestVersionUrl ? (
+                  <a
+                    href={latest.latestVersionUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline-offset-4 hover:text-foreground hover:underline"
+                  >
+                    Latest v{latest.latestVersion}
+                  </a>
+                ) : (
+                  `Latest v${latest.latestVersion}`
+                )
+              ) : undefined
+            }
+          />
+        </div>
+      ) : null}
+
+      {nodesError ? (
+        <Alert variant="destructive">
+          <CircleAlertIcon />
+          <AlertTitle>Nodes could not be loaded</AlertTitle>
+          <AlertDescription>
+            <p>{nodesError}</p>
             <Button
               variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={isRefreshingNodes}
-              title="Refresh"
-              aria-label="Refresh nodes"
-              onClick={handleRefreshNodes}
+              size="sm"
+              className="mt-2"
+              onClick={() => void onReloadNodes()}
             >
-              <RefreshCw className={`size-4 ${isRefreshingNodes ? 'animate-spin' : ''}`} />
+              Try again
             </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {!nodesLoading && !nodesError && !hasNodes ? (
+        <Empty className="border border-dashed">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <ServerIcon />
+            </EmptyMedia>
+            <EmptyTitle>No nodes yet</EmptyTitle>
+            <EmptyDescription>
+              Add a wgkeeper node to issue client configs and manage its peers from here.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button onClick={() => setAddOpen(true)}>
+              <PlusIcon />
+              Add node
+            </Button>
+          </EmptyContent>
+        </Empty>
+      ) : null}
+
+      {nodesLoading || hasNodes ? (
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <InputGroup className="w-full sm:w-72">
+              <InputGroupInput
+                placeholder="Filter by address, ID or version"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                aria-label="Filter nodes"
+              />
+              <InputGroupAddon>
+                <SearchIcon />
+              </InputGroupAddon>
+            </InputGroup>
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              size="sm"
+              value={statusFilter}
+              onValueChange={(value) => value && setStatusParam(value)}
+              aria-label="Filter by status"
+            >
+              <ToggleGroupItem value="all" className="px-3">
+                All
+              </ToggleGroupItem>
+              <ToggleGroupItem value="online" className="px-3">
+                Online
+              </ToggleGroupItem>
+              <ToggleGroupItem value="offline" className="px-3">
+                Offline
+              </ToggleGroupItem>
+              <ToggleGroupItem value="outdated" className="px-3">
+                Outdated
+              </ToggleGroupItem>
+            </ToggleGroup>
           </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          {nodesError ? (
-            <div className="px-6 pb-6">
-              <Alert variant="destructive">
-                <AlertCircle />
-                <AlertDescription>{nodesError}</AlertDescription>
-              </Alert>
-            </div>
-          ) : nodesLoading ? (
-            <div className="divide-y divide-border border-t border-border">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-4 px-6 py-[0.9375rem]">
-                  <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                    <Skeleton className="h-4 w-48" />
-                    <Skeleton className="h-3 w-64" />
-                  </div>
-                  <Skeleton className="h-5 w-16 rounded-md" />
-                  <Skeleton className="size-4 rounded-sm" />
-                </div>
-              ))}
-            </div>
-          ) : nodes.length ? (
-            <>
-              {/* Status summary */}
-              <div className="flex flex-col gap-2 border-t border-border px-6 py-4">
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  <span>
-                    Online{' '}
-                    <span className="font-medium text-success-foreground tabular-nums">
-                      {statusSummary.online}
-                    </span>
-                  </span>
-                  <span>
-                    Offline{' '}
-                    <span className="font-medium text-destructive tabular-nums">
-                      {statusSummary.offline}
-                    </span>
-                  </span>
-                  {statusSummary.other > 0 ? (
-                    <span>
-                      Other{' '}
-                      <span className="font-medium text-warning-foreground tabular-nums">
-                        {statusSummary.other}
-                      </span>
-                    </span>
-                  ) : null}
-                  {statusSummary.outdated > 0 ? (
-                    <span>
-                      Updates{' '}
-                      <span className="font-medium text-warning-foreground tabular-nums">
-                        {statusSummary.outdated}
-                      </span>
-                    </span>
-                  ) : null}
-                </div>
-                <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                  {statusSummary.online > 0 ? (
-                    <div
-                      className="h-full bg-success"
-                      style={{ width: pct(statusSummary.online) }}
-                    />
-                  ) : null}
-                  {statusSummary.offline > 0 ? (
-                    <div
-                      className="h-full bg-destructive"
-                      style={{ width: pct(statusSummary.offline) }}
-                    />
-                  ) : null}
-                  {statusSummary.other > 0 ? (
-                    <div
-                      className="h-full bg-warning"
-                      style={{ width: pct(statusSummary.other) }}
-                    />
-                  ) : null}
-                </div>
-              </div>
 
-              {/* List */}
-              <div className="divide-y divide-border border-t border-border">
-                {nodes.map((node) => (
-                  <Link
-                    key={node.id}
-                    to={`/nodes/${node.id}`}
-                    className="group flex items-center gap-4 px-6 py-[0.9375rem] transition-colors hover:bg-accent/50"
-                  >
-                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="truncate font-mono text-sm font-medium"
-                          title={node.address}
-                        >
-                          {node.address}
-                        </span>
-                        {node.version ? (
-                          <Badge
-                            variant={node.isOutdated ? 'warning' : 'secondary'}
-                            className="shrink-0 gap-1 font-mono text-[11px]"
-                          >
-                            {node.isOutdated ? <TriangleAlert /> : null}v{node.version}
-                          </Badge>
-                        ) : null}
-                      </div>
-                      <span
-                        className="truncate font-mono text-xs text-muted-foreground"
-                        title={node.id}
-                      >
-                        {node.id}
-                      </span>
-                    </div>
-                    <NodeStatusBadge status={node.status} className="shrink-0" />
-                    <ChevronRight className="size-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground" />
-                  </Link>
-                ))}
-              </div>
-
-              {/* Pagination */}
-              {nodesTotalPages > 1 ? (
-                <div className="flex items-center justify-between gap-4 border-t border-border px-6 py-3">
-                  <span className="text-xs text-muted-foreground tabular-nums">{pageLabel}</span>
-                  <Pagination className="mx-0 w-auto justify-end">
-                    <PaginationContent>
-                      <PaginationItem>
-                        <PaginationPrevious
-                          href="#"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            void onReloadNodes(nodesPage - 1);
-                          }}
-                          aria-disabled={nodesPage === 1}
-                          tabIndex={nodesPage === 1 ? -1 : undefined}
-                          className={nodesPage === 1 ? 'pointer-events-none opacity-50' : ''}
-                        />
-                      </PaginationItem>
-                      {Array.from({ length: nodesTotalPages }, (_, i) => i + 1)
-                        .filter(
-                          (page) =>
-                            page === 1 ||
-                            page === nodesTotalPages ||
-                            Math.abs(page - nodesPage) <= 1,
-                        )
-                        .reduce<(number | 'ellipsis')[]>((acc, page, idx, arr) => {
-                          if (idx > 0 && page - (arr[idx - 1] as number) > 1) acc.push('ellipsis');
-                          acc.push(page);
-                          return acc;
-                        }, [])
-                        .map((item, idx) =>
-                          item === 'ellipsis' ? (
-                            <PaginationItem key={`ellipsis-${idx}`}>
-                              <PaginationEllipsis />
-                            </PaginationItem>
-                          ) : (
-                            <PaginationItem key={item}>
-                              <PaginationLink
-                                href="#"
-                                isActive={item === nodesPage}
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  void onReloadNodes(item);
-                                }}
-                              >
-                                {item}
-                              </PaginationLink>
-                            </PaginationItem>
-                          ),
+          <div className="overflow-hidden rounded-lg border">
+            <Table>
+              <TableHeader className="bg-muted/50">
+                {table.getHeaderGroups().map((group) => (
+                  <TableRow key={group.id} className="hover:bg-transparent">
+                    {group.headers.map((header) => (
+                      <TableHead
+                        key={header.id}
+                        className={cn(
+                          'h-9 text-xs',
+                          header.id === 'actions' && 'w-12',
+                          (header.id === 'api' || header.id === 'added') && 'max-md:hidden',
                         )}
-                      <PaginationItem>
-                        <PaginationNext
-                          href="#"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            void onReloadNodes(nodesPage + 1);
-                          }}
-                          aria-disabled={nodesPage === nodesTotalPages}
-                          tabIndex={nodesPage === nodesTotalPages ? -1 : undefined}
-                          className={
-                            nodesPage === nodesTotalPages ? 'pointer-events-none opacity-50' : ''
-                          }
-                        />
-                      </PaginationItem>
-                    </PaginationContent>
-                  </Pagination>
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <div className="flex flex-col items-center gap-3 border-t border-border px-6 py-14 text-center">
-              <div className="flex size-11 items-center justify-center rounded-lg border border-border bg-muted/50 text-muted-foreground">
-                <Server className="size-5" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <p className="text-sm font-medium text-foreground">No nodes yet</p>
-                <p className="max-w-xs text-sm text-muted-foreground">
-                  Add a WireGuard node above to start managing peers and issuing configs.
-                </p>
+                      >
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableHeader>
+              <TableBody>
+                {nodesLoading && !hasNodes ? (
+                  SKELETON_ROWS.map((key) => (
+                    <TableRow key={key}>
+                      <TableCell>
+                        <Skeleton className="h-4 w-48" />
+                        <Skeleton className="mt-1.5 h-3 w-16" />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton className="h-5 w-16" />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton className="h-5 w-14" />
+                      </TableCell>
+                      <TableCell className="max-md:hidden">
+                        <Skeleton className="h-4 w-10" />
+                      </TableCell>
+                      <TableCell className="max-md:hidden">
+                        <Skeleton className="h-4 w-20" />
+                      </TableCell>
+                      <TableCell />
+                    </TableRow>
+                  ))
+                ) : rows.length === 0 ? (
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={columns.length} className="h-24 text-center">
+                      <span className="text-muted-foreground">
+                        No nodes on this page match the filter.
+                      </span>{' '}
+                      <Button
+                        variant="link"
+                        className="h-auto p-0"
+                        onClick={() => {
+                          patchParams({ q: null, status: null });
+                        }}
+                      >
+                        Clear filters
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  rows.map((row) => (
+                    <TableRow
+                      key={row.id}
+                      className="cursor-pointer"
+                      onClick={() => void navigate(`/nodes/${row.original.id}`)}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell
+                          key={cell.id}
+                          className={cn(
+                            'py-2.5',
+                            (cell.column.id === 'api' || cell.column.id === 'added') &&
+                              'max-md:hidden',
+                          )}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          {nodesTotalPages > 1 ? (
+            <div className="flex items-center justify-between gap-4 text-sm">
+              <span className="text-muted-foreground tabular-nums">
+                {from}–{to} of {nodesTotal}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label="Previous page"
+                  disabled={nodesPage <= 1}
+                  onClick={() => goToPage(nodesPage - 1)}
+                >
+                  <ChevronLeftIcon />
+                </Button>
+                <span className="min-w-16 text-center tabular-nums">
+                  {nodesPage} / {nodesTotalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label="Next page"
+                  disabled={nodesPage >= nodesTotalPages}
+                  onClick={() => goToPage(nodesPage + 1)}
+                >
+                  <ChevronRightIcon />
+                </Button>
               </div>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          ) : null}
+        </div>
+      ) : null}
+
+      <AddNodeDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        apiFetch={apiFetch}
+        onAdded={async () => {
+          // New nodes come first; show the page they land on.
+          if (nodesPage === 1) await onReloadNodes(1);
+          else goToPage(1);
+        }}
+      />
+      <DeleteNodeDialog
+        node={deleteNode}
+        onOpenChange={(open) => {
+          if (!open) setDeleteNode(null);
+        }}
+        apiFetch={apiFetch}
+        onDeleted={() => void onReloadNodes()}
+      />
     </div>
   );
 };
+
+const toneClass = {
+  success: 'text-success-foreground',
+  destructive: 'text-destructive',
+  warning: 'text-warning-foreground',
+} as const;
+
+const Summary = ({
+  label,
+  value,
+  tone,
+  hint,
+}: {
+  label: string;
+  value: number | undefined;
+  tone?: keyof typeof toneClass;
+  hint?: React.ReactNode;
+}) => (
+  <div className="flex flex-col gap-1 bg-card px-5 py-4">
+    <span className="text-sm text-muted-foreground">{label}</span>
+    <span
+      className={cn(
+        'text-2xl font-semibold tracking-tight tabular-nums',
+        tone !== undefined && toneClass[tone],
+      )}
+    >
+      {value ?? '—'}
+    </span>
+    {hint === undefined ? null : <span className="text-xs text-muted-foreground">{hint}</span>}
+  </div>
+);
+
+const VersionCell = ({ node }: { node: NodeItem }) => {
+  if (!node.version) return <span className="text-muted-foreground">—</span>;
+  if (!node.isOutdated || !node.latestVersion) {
+    return (
+      <Badge variant="secondary" className="font-mono">
+        v{node.version}
+      </Badge>
+    );
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          variant="outline"
+          className="gap-1 border-warning/40 font-mono text-warning-foreground"
+        >
+          <ArrowUpCircleIcon aria-hidden />v{node.version}
+          <span className="sr-only">, v{node.latestVersion} is available</span>
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent>v{node.latestVersion} is available</TooltipContent>
+    </Tooltip>
+  );
+};
+
+const NodeActions = ({
+  node,
+  onOpen,
+  onDelete,
+}: {
+  node: NodeItem;
+  onOpen: () => void;
+  onDelete: () => void;
+}) => (
+  <DropdownMenu>
+    <DropdownMenuTrigger asChild>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="text-muted-foreground data-[state=open]:bg-accent"
+        aria-label={`Actions for ${nodeHost(node.address)}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <MoreHorizontalIcon />
+      </Button>
+    </DropdownMenuTrigger>
+    <DropdownMenuContent align="end" className="w-48" onClick={(e) => e.stopPropagation()}>
+      <DropdownMenuItem onSelect={onOpen}>
+        <ExternalLinkIcon />
+        Open
+      </DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void copyToClipboard(node.address, 'Address copied')}>
+        <CopyIcon />
+        Copy address
+      </DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void copyToClipboard(node.id, 'Node ID copied')}>
+        <CopyIcon />
+        Copy node ID
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+        <Trash2Icon />
+        Remove node
+      </DropdownMenuItem>
+    </DropdownMenuContent>
+  </DropdownMenu>
+);

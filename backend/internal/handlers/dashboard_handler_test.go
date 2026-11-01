@@ -13,10 +13,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+
 	"wg-keeper-backend/internal/config"
 	"wg-keeper-backend/internal/database"
 	"wg-keeper-backend/internal/models"
-	"wg-keeper-backend/internal/services"
 )
 
 func TestDashboardHandlerGetNodesAndDelete(t *testing.T) {
@@ -131,7 +131,8 @@ func TestDashboardHandlerCreateAndCheckNode(t *testing.T) {
 	database.DB = db
 	t.Cleanup(func() { database.DB = oldDB })
 
-	restore := stubDashboardRoundTripper(t, func(req *http.Request) (*http.Response, error) {
+	handler := NewDashboardHandler()
+	restore := stubDashboardRoundTripper(t, handler, func(req *http.Request) (*http.Response, error) {
 		switch req.URL.Path {
 		case "/readyz":
 			return dashboardJSONResponse(http.StatusOK, "")
@@ -142,8 +143,6 @@ func TestDashboardHandlerCreateAndCheckNode(t *testing.T) {
 		}
 	})
 	defer restore()
-
-	handler := NewDashboardHandler()
 
 	t.Run("check invalid body", func(t *testing.T) {
 		rec := httptest.NewRecorder()
@@ -256,13 +255,12 @@ func newDashboardJSONRequest(t *testing.T, method string, path string, body any)
 	return req
 }
 
-func stubDashboardRoundTripper(t *testing.T, fn func(req *http.Request) (*http.Response, error)) func() {
+// stubDashboardRoundTripper makes h's service send node requests to fn.
+func stubDashboardRoundTripper(t *testing.T, h *DashboardHandler, fn func(req *http.Request) (*http.Response, error)) func() {
 	t.Helper()
 
-	prev := services.SetSharedHTTPRoundTripperForTests(roundTripFunc(fn))
-	return func() {
-		services.SetSharedHTTPRoundTripperForTests(prev)
-	}
+	h.service.WithTransport(roundTripFunc(fn))
+	return func() { h.service.WithTransport(nil) }
 }
 
 func dashboardJSONResponse(status int, body string) (*http.Response, error) {

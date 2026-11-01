@@ -83,3 +83,6 @@ backend/node_modules
 backend/dist
 
 .cache
+
+# Secrets for docker-compose.yml
+console.env

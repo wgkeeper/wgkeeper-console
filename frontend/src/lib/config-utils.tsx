@@ -12,9 +12,9 @@ const renderConfigLine = (line: string) => {
     const right = line.slice(eqIndex + 1);
     return (
       <span>
-        <span className="text-sky-700 dark:text-foreground/90">{left}</span>
+        <span className="text-foreground">{left}</span>
         <span className="text-muted-foreground">=</span>
-        <span className="text-foreground/65 dark:text-muted-foreground">{right}</span>
+        <span className="text-muted-foreground">{right}</span>
       </span>
     );
   }
@@ -23,6 +23,8 @@ const renderConfigLine = (line: string) => {
 
 export const renderConfig = (text: string) =>
   text.split('\n').map((line, index, arr) => (
+    // Config lines repeat and never move, so their position is their identity.
+    // oxlint-disable-next-line react/no-array-index-key
     <span key={index}>
       {renderConfigLine(line)}
       {index < arr.length - 1 ? '\n' : null}
