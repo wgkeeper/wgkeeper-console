@@ -31,10 +31,7 @@ export const ChangePasswordScreen = ({
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center gap-7 bg-background px-4 py-12 text-foreground">
       <div className="flex flex-col items-center gap-2">
-        <WGKeeperLogo className="h-7 w-auto" />
-        <p className="text-[0.7rem] font-medium tracking-[0.2em] text-muted-foreground uppercase">
-          Console
-        </p>
+        <WGKeeperLogo className="h-8 w-auto" />
       </div>
 
       <Card className="w-full max-w-sm">

@@ -1,4 +1,4 @@
-# WG Keeper Console — reverse proxy to app
+# wgkeeper console — reverse proxy to app
 # Set DOMAIN in .env (e.g. DOMAIN=console.example.com) for HTTPS with Let's Encrypt.
 # Default localhost — only HTTP.
 {$DOMAIN:localhost} {

@@ -22,7 +22,7 @@ import (
 	_ "wg-keeper-backend/docs"
 )
 
-// @title           WG Keeper Console API
+// @title           wgkeeper console API
 // @version         1.0
 // @description     WireGuard management console API
 // @termsOfService  http://swagger.io/terms/
@@ -144,6 +144,10 @@ func main() {
 			themeInitPath := filepath.Join(staticRoot, "theme-init.js")
 			if _, err := os.Stat(themeInitPath); err == nil {
 				r.StaticFile("/theme-init.js", themeInitPath)
+			}
+			faviconPath := filepath.Join(staticRoot, "favicon.svg")
+			if _, err := os.Stat(faviconPath); err == nil {
+				r.StaticFile("/favicon.svg", faviconPath)
 			}
 			r.NoRoute(func(c *gin.Context) {
 				// Skip API routes

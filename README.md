@@ -1,39 +1,26 @@
-<h1 align="center">WGKeeper Console</h1>
-
 <p align="center">
-  <strong>Web admin console for managing WGKeeper nodes and WireGuard peers.</strong>
+  <img alt="wgkeeper console" src="https://raw.githubusercontent.com/wgkeeper/wgkeeper/main/brand/wgkeeper-console.svg" height="64">
 </p>
 
-<p align="center">
-  Manage your WireGuard infrastructure — nodes, peers, and access — in one place.
-</p>
+<p align="center">Web admin console for managing wgkeeper nodes and WireGuard peers.</p>
+
+<div align="center">
+
+[![CI](https://github.com/wgkeeper/wgkeeper-console/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/wgkeeper/wgkeeper-console/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://github.com/wgkeeper/wgkeeper-console/blob/main/LICENSE)
+[![GitHub Release](https://img.shields.io/github/v/release/wgkeeper/wgkeeper-console)](https://github.com/wgkeeper/wgkeeper-console/releases/latest)
+[![Image Pulls](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fghcr-badge.elias.eu.org%2Fapi%2Fwgkeeper%2Fwgkeeper-console%2Fconsole&query=%24.downloadCount&label=image%20pulls&color=blue)](https://github.com/wgkeeper/wgkeeper-console/pkgs/container/console)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/wgkeeper/wgkeeper-console/badge)](https://scorecard.dev/viewer/?uri=github.com/wgkeeper/wgkeeper-console)
+
+</div>
 
 <p align="center">
-  <img width="1512" height="868" alt="wgkeeper-nodes-light" src="https://github.com/user-attachments/assets/27ceaf02-2cc0-4c23-91ef-0d31233e1152" />
-</p>
-
-<p align="center">
-  <em>Nodes overview with real-time status and health indicators</em>
-</p>
-
-<p align="center">
-  <a href="https://github.com/wgkeeper/wgkeeper-console/actions/workflows/ci.yml">
-    <img src="https://github.com/wgkeeper/wgkeeper-console/actions/workflows/ci.yml/badge.svg?branch=main" />
-  </a>
-  <a href="https://github.com/wgkeeper/wgkeeper-console/blob/main/LICENSE">
-    <img src="https://img.shields.io/badge/License-AGPL_v3-blue.svg" />
-  </a>
-  <a href="https://github.com/wgkeeper/wgkeeper-console/releases/latest">
-    <img src="https://img.shields.io/github/v/release/wgkeeper/wgkeeper-console" />
-  </a>
-  <a href="https://github.com/wgkeeper/wgkeeper-console/pkgs/container/console">
-    <img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fghcr-badge.elias.eu.org%2Fapi%2Fwgkeeper%2Fwgkeeper-console%2Fconsole&query=%24.downloadCount&label=image%20pulls&color=blue" />
-  </a>
+  <img width="1512" height="868" alt="Nodes overview with real-time status and health indicators" src="https://github.com/user-attachments/assets/27ceaf02-2cc0-4c23-91ef-0d31233e1152" />
 </p>
 
 ---
 
-WGKeeper Console is the admin panel for WGKeeper. It gives you one place to manage your WireGuard infrastructure.
+wgkeeper console is the admin panel for wgkeeper. It gives you one place to manage your WireGuard infrastructure.
 
 ---
 
@@ -51,7 +38,7 @@ WGKeeper Console is the admin panel for WGKeeper. It gives you one place to mana
 
 ### Basic Docker Compose
 
-Run WGKeeper Console with a published image:
+Run wgkeeper console with a published image:
 
 Generate a unique `SECRET_KEY` first:
 
@@ -100,7 +87,7 @@ The first login requires a password change.
 
 ### Docker Compose with Caddy
 
-If you want WGKeeper Console behind Caddy with automatic HTTPS, use this setup:
+If you want wgkeeper console behind Caddy with automatic HTTPS, use this setup:
 
 `compose.yaml`:
 
@@ -204,7 +191,7 @@ Optional variables:
 
 ### Behind a reverse proxy
 
-By default the backend reads the client IP from the TCP connection (`RemoteAddr`) and ignores `X-Forwarded-For` from anyone — this is safe when WGKeeper Console is exposed directly.
+By default the backend reads the client IP from the TCP connection (`RemoteAddr`) and ignores `X-Forwarded-For` from anyone — this is safe when wgkeeper console is exposed directly.
 
 If you put a reverse proxy in front (Caddy, nginx, Traefik, a load balancer), you must tell the backend which proxy IPs to trust, otherwise every request will look like it came from the proxy and the per-IP rate limit will treat all of your users as a single client — one busy user can lock everyone out.
 
@@ -221,12 +208,9 @@ Set `DOCS=true` and start the backend to enable Swagger UI at `http://localhost:
 
 More Swagger details live in [backend/SWAGGER.md](./backend/SWAGGER.md).
 
-## Testing
+## Contributing
 
-```bash
-cd backend && go test ./...
-cd frontend && pnpm test && pnpm build
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks and the pull request flow. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## License
 

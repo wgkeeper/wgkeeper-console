@@ -83,7 +83,7 @@ export const AppShell = ({
     } else {
       page = 'Nodes';
     }
-    document.title = `WGKeeper Console · ${page}`;
+    document.title = `wgkeeper console · ${page}`;
   }, [pathname, nodes]);
 
   return (
@@ -235,12 +235,7 @@ const SidebarHeaderContent = () => {
 };
 
 const SidebarBrand = () => {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <WGKeeperLogo className="h-7 w-auto" />
-      <p className="text-[10px] tracking-widest text-muted-foreground/70 uppercase">Console</p>
-    </div>
-  );
+  return <WGKeeperLogo className="h-5 w-auto" />;
 };
 
 const SidebarSection = () => {

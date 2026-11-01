@@ -16,7 +16,7 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-6 text-foreground">
           <p className="text-xs tracking-[0.18em] text-muted-foreground uppercase">
-            WGKeeper Console
+            wgkeeper console
           </p>
           <h1 className="text-2xl font-semibold">Something went wrong</h1>
           <p className="max-w-sm text-center text-sm text-muted-foreground">

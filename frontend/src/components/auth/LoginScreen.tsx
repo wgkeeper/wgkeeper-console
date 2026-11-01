@@ -35,10 +35,7 @@ export const LoginScreen = ({ form, error, isSubmitting, onChange, onSubmit }: P
       />
 
       <div className="relative flex flex-col items-center gap-2">
-        <WGKeeperLogo className="h-7 w-auto" />
-        <p className="text-[0.7rem] font-medium tracking-[0.2em] text-muted-foreground uppercase">
-          Console
-        </p>
+        <WGKeeperLogo className="h-8 w-auto" />
       </div>
 
       <Card className="relative w-full max-w-sm">
