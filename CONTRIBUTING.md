@@ -101,13 +101,22 @@ Run it when you touch the Dockerfile, startup, static file serving or how the co
 2. Keep a pull request to one change, with tests for new behavior and bug fixes.
 3. Title it in [Conventional Commits](https://www.conventionalcommits.org/) style: `feat(ui): add peer search`, `fix: refresh node status after restart`. The title becomes the squashed commit on `main`.
 4. For UI changes, add a screenshot or a short recording to the pull request.
-5. Update `docs/` when you change configuration, deployment or metrics.
+5. If users will notice the change (UI, API, configuration, image, behavior), add a line to `CHANGELOG.md` under `[Unreleased]`.
+6. Update `docs/` when you change configuration, deployment or metrics.
 
 `main` only accepts pull requests, and the CI checks must pass before merging.
 
 ## Releases (maintainers)
 
-Tag the release commit on `main` as `vX.Y.Z` and push the tag. CI builds and pushes the image to `ghcr.io/wgkeeper/console` as `X.Y.Z`, and as `latest` for stable tags. Tags with a suffix (`v2.0.0-rc.1`) are published without moving `latest`. Every push to `main` also publishes `edge` and `sha-*` images for testing.
+For a release candidate, tag the release commit as `vX.Y.Z-rc.N` and push the tag, leaving `CHANGELOG.md` as is. CI publishes the image as `X.Y.Z-rc.N` without moving `latest`, and creates a pre-release whose notes are the `[Unreleased]` section.
+
+For the release itself:
+
+1. Move the `[Unreleased]` entries in `CHANGELOG.md` to a new `## [X.Y.Z] - YYYY-MM-DD` section and update the compare links at the bottom.
+2. Merge to `main`, then tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+3. CI runs every check, pushes the image to `ghcr.io/wgkeeper/console` as `X.Y.Z` and `latest`, and only then creates the GitHub release with that `CHANGELOG.md` section as notes. The order matters: `scripts/install.sh` installs the latest GitHub release.
+
+Every push to `main` also publishes `edge` and `sha-*` images for testing.
 
 ## License
 
