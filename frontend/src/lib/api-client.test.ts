@@ -79,7 +79,7 @@ describe('createApiFetch', () => {
   describe('401 handling', () => {
     it('calls onUnauthenticated and returns the 401 response', async () => {
       mockFetch.mockResolvedValueOnce(fail(401));
-      const onUnauthenticated = vi.fn();
+      const onUnauthenticated = vi.fn<() => void>();
       const apiFetch = createApiFetch(onUnauthenticated);
 
       const res = await apiFetch('/api/nodes');
@@ -127,7 +127,7 @@ describe('createApiFetch', () => {
 
     it('does not call onUnauthenticated on network error', async () => {
       mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
-      const onUnauthenticated = vi.fn();
+      const onUnauthenticated = vi.fn<() => void>();
       const apiFetch = createApiFetch(onUnauthenticated);
 
       await apiFetch('/api/nodes').catch(() => {});

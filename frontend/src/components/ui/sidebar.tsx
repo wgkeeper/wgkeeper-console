@@ -28,9 +28,10 @@ interface SidebarProviderProps {
 
 const SidebarProvider = ({ children, defaultOpen = true }: SidebarProviderProps) => {
   const [isCollapsed, setCollapsed] = React.useState(!defaultOpen);
+  const value = React.useMemo(() => ({ isCollapsed, setCollapsed }), [isCollapsed]);
 
   return (
-    <SidebarContext.Provider value={{ isCollapsed, setCollapsed }}>
+    <SidebarContext.Provider value={value}>
       <TooltipProvider delayDuration={0}>{children}</TooltipProvider>
     </SidebarContext.Provider>
   );

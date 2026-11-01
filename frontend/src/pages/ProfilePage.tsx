@@ -47,7 +47,7 @@ export const ProfilePage = ({ apiFetch, initialUsername }: Props) => {
     void loadMe();
   }, [apiFetch, username]);
 
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
     setNotice('');

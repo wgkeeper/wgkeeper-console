@@ -33,7 +33,7 @@ describe('formatDate', () => {
   it('formats a valid ISO string (checks date part only — time shifts with timezone)', () => {
     // Use noon UTC so the date stays stable across all UTC-12..UTC+12 offsets
     const result = formatDate('2024-06-15T12:00:00.000Z');
-    expect(result).toMatch(/15\.06\.2024/);
+    expect(result).toMatch(/15\.06\.2024/u);
   });
 
   it('returns the original string if date is invalid', () => {
@@ -47,7 +47,7 @@ describe('formatExpires', () => {
   });
 
   it('returns "No limit" for undefined', () => {
-    expect(formatExpires(undefined)).toBe('No limit');
+    expect(formatExpires(null)).toBe('No limit');
   });
 
   it('returns "No limit" for empty string', () => {
@@ -57,7 +57,7 @@ describe('formatExpires', () => {
   it('formats a valid ISO string (checks date part only — time shifts with timezone)', () => {
     // Use noon UTC so the date stays stable across all UTC-12..UTC+12 offsets
     const result = formatExpires('2025-06-15T12:00:00.000Z');
-    expect(result).toMatch(/15\.06\.2025/);
+    expect(result).toMatch(/15\.06\.2025/u);
   });
 
   it('returns the original string if date is invalid', () => {

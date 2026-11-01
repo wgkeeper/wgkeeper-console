@@ -32,7 +32,7 @@ In development the console uses a temporary `SECRET_KEY` when none is set, so se
 
 CI runs the same checks; running them locally saves a round trip.
 
-Frontend:
+Frontend (`pnpm lint` is [oxlint](https://oxc.rs/docs/guide/usage/linter) with type-aware rules; its config, with the reason for every disabled rule, is `frontend/.oxlintrc.json`):
 
 ```bash
 cd frontend

@@ -64,7 +64,8 @@ export const NodeConfigTab = ({
       if (filtered.length === 0) return renderedFamilies;
       return filtered.length === prev.length ? prev : filtered;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Keyed on the families' contents: renderedFamilies is a new array on every render.
+    // oxlint-disable-next-line react/exhaustive-deps
   }, [supportedAddressFamilies?.join(',')]);
   const [configText, setConfigText] = useState('');
   const [configError, setConfigError] = useState('');
@@ -75,12 +76,12 @@ export const NodeConfigTab = ({
 
   useEffect(
     () => () => {
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current);
     },
     [],
   );
 
-  const handleFetchConfig = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleFetchConfig = async (event: React.SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     setConfigError('');
     setConfigNotice('');
@@ -105,7 +106,7 @@ export const NodeConfigTab = ({
     const ipv4Dns = supportsIPv4 ? [configDns1, configDns2] : [];
     const ipv6Dns = supportsIPv6 ? [configDns3, configDns4] : [];
     const dnsValues = [...ipv4Dns, ...ipv6Dns].map((v) => v.trim()).filter(Boolean);
-    if (dnsValues.length && dnsValues.some((v) => !isValidDnsValue(v))) {
+    if (dnsValues.some((v) => !isValidDnsValue(v))) {
       setConfigError('DNS must be a valid IPv4 or IPv6 address.');
       return;
     }
@@ -199,7 +200,7 @@ export const NodeConfigTab = ({
       await navigator.clipboard.writeText(configText);
       setConfigCopied(true);
       setConfigNotice('');
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current);
       copyTimerRef.current = setTimeout(() => setConfigCopied(false), 1500);
     } catch {
       setConfigError('Failed to copy config.');

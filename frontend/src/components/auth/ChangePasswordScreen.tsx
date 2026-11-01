@@ -17,7 +17,7 @@ type Props = {
   error: string;
   isSubmitting: boolean;
   onChange: (field: 'currentPassword' | 'newPassword', value: string) => void;
-  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+  onSubmit: (event: React.SubmitEvent<HTMLFormElement>) => void;
 };
 
 export const ChangePasswordScreen = ({
@@ -45,7 +45,7 @@ export const ChangePasswordScreen = ({
         </CardHeader>
         <CardContent>
           <form className="flex flex-col gap-4" onSubmit={onSubmit}>
-            {!mustChangePassword ? (
+            {mustChangePassword ? null : (
               <div className="flex flex-col gap-2">
                 <Label htmlFor="currentPassword">Current password</Label>
                 <Input
@@ -57,7 +57,7 @@ export const ChangePasswordScreen = ({
                   onChange={(event) => onChange('currentPassword', event.target.value)}
                 />
               </div>
-            ) : null}
+            )}
             <div className="flex flex-col gap-2">
               <Label htmlFor="newPassword">New password</Label>
               <Input

@@ -40,6 +40,10 @@ import { formatBytes, formatDate, formatExpires, truncate, PAGE_SIZES } from '@/
 import { usePeerDetail } from '@/hooks/usePeerDetail';
 import type { PeersResponse } from '@/types';
 
+// Stable keys for loading placeholders: there's no data to key them by yet.
+const SKELETON_ROWS = ['row-1', 'row-2', 'row-3', 'row-4', 'row-5'];
+const SKELETON_FIELDS = ['field-1', 'field-2', 'field-3', 'field-4'];
+
 type Props = {
   nodeId: string;
   apiFetch: (path: string, options?: RequestInit) => Promise<Response>;
@@ -114,7 +118,7 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
   }, [loadPeers]);
 
   useEffect(() => {
-    if (refreshTrigger != null && refreshTrigger > 0) {
+    if (refreshTrigger !== undefined && refreshTrigger > 0) {
       void loadPeers();
     }
   }, [refreshTrigger, loadPeers]);
@@ -159,7 +163,7 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
   const activeOnPage = peersData?.data?.filter((p) => p.active).length ?? 0;
 
   const sortedPeers = peersData?.data
-    ? [...peersData.data].sort((a, b) => {
+    ? peersData.data.toSorted((a, b) => {
         const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return sortDirection === 'desc' ? bTime - aTime : aTime - bTime;
@@ -178,7 +182,7 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <span className="flex items-center gap-1.5 text-sm font-medium">
           <Users className="size-4 text-muted-foreground" />
-          {total} peer{total !== 1 ? 's' : ''}
+          {total} peer{total === 1 ? '' : 's'}
           {total > 0 && (
             <span className="font-normal text-muted-foreground">
               {' · '}
@@ -273,8 +277,8 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
           </TableHeader>
           <TableBody>
             {peersLoading && !peersData ? (
-              Array.from({ length: 5 }).map((_, i) => (
-                <TableRow key={i}>
+              SKELETON_ROWS.map((row) => (
+                <TableRow key={row}>
                   <TableCell>
                     <Skeleton className="h-4 w-[130px]" />
                   </TableCell>
@@ -457,8 +461,8 @@ export const NodePeersTab = ({ nodeId, apiFetch, refreshTrigger }: Props) => {
             <div className="flex-1 overflow-y-auto">
               {detailLoading ? (
                 <div className="flex flex-col gap-4 p-5">
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <div key={i} className="flex flex-col gap-1.5">
+                  {SKELETON_FIELDS.map((field) => (
+                    <div key={field} className="flex flex-col gap-1.5">
                       <Skeleton className="h-3 w-20" />
                       <Skeleton className="h-8 w-full rounded-md" />
                     </div>

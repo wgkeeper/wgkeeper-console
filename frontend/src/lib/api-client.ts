@@ -21,12 +21,24 @@ export function fetchErrorMessage(err: unknown): string | null {
 export function rateLimitMessage(res: Response): string | null {
   if (res.status !== 429) return null;
   const header = res.headers.get('Retry-After');
-  const seconds = header ? parseInt(header, 10) : NaN;
+  const seconds = header ? Math.trunc(Number(header)) : Number.NaN;
   if (Number.isFinite(seconds) && seconds > 0) {
     return `Too many requests. Try again in ${seconds} second${seconds === 1 ? '' : 's'}.`;
   }
   return 'Too many requests. Please try again later.';
 }
+
+const buildHeaders = (options: RequestInit): Headers => {
+  const headers = new Headers(options.headers);
+  // Only auto-set JSON for string bodies. For FormData/Blob/URLSearchParams
+  // the browser must set Content-Type itself so it can include the
+  // multipart boundary or correct mime — forcing application/json there
+  // would silently corrupt the request.
+  if (!headers.has('Content-Type') && typeof options.body === 'string') {
+    headers.set('Content-Type', 'application/json');
+  }
+  return headers;
+};
 
 /**
  * Creates a fetch wrapper that:
@@ -40,18 +52,6 @@ export function createApiFetch(onUnauthenticated: () => void, timeoutMs = REQUES
   const withTimeout = (existing?: AbortSignal): AbortSignal => {
     const timeout = AbortSignal.timeout(timeoutMs);
     return existing ? AbortSignal.any([existing, timeout]) : timeout;
-  };
-
-  const buildHeaders = (options: RequestInit): Headers => {
-    const headers = new Headers(options.headers);
-    // Only auto-set JSON for string bodies. For FormData/Blob/URLSearchParams
-    // the browser must set Content-Type itself so it can include the
-    // multipart boundary or correct mime — forcing application/json there
-    // would silently corrupt the request.
-    if (!headers.has('Content-Type') && typeof options.body === 'string') {
-      headers.set('Content-Type', 'application/json');
-    }
-    return headers;
   };
 
   return async (path: string, options: RequestInit = {}): Promise<Response> => {

@@ -40,6 +40,9 @@ type Props = {
   onReloadNodes: (page?: number) => Promise<void>;
 };
 
+// Stable keys for loading placeholders: there's no data to key them by yet.
+const SKELETON_ROWS = ['row-1', 'row-2', 'row-3', 'row-4'];
+
 export const NodesPage = ({
   nodes,
   nodesPage,
@@ -84,7 +87,7 @@ export const NodesPage = ({
     setNodeCheckError('');
   };
 
-  const handleCreateNode = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleCreateNode = async (event: React.SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     setNodeCheckError('');
 
@@ -324,8 +327,8 @@ export const NodesPage = ({
             </div>
           ) : nodesLoading ? (
             <div className="divide-y divide-border border-t border-border">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-4 px-6 py-[0.9375rem]">
+              {SKELETON_ROWS.map((row) => (
+                <div key={row} className="flex items-center gap-4 px-6 py-[0.9375rem]">
                   <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                     <Skeleton className="h-4 w-48" />
                     <Skeleton className="h-3 w-64" />
@@ -335,7 +338,7 @@ export const NodesPage = ({
                 </div>
               ))}
             </div>
-          ) : nodes.length ? (
+          ) : nodes.length > 0 ? (
             <>
               {/* Status summary */}
               <div className="flex flex-col gap-2 border-t border-border px-6 py-4">
@@ -461,6 +464,8 @@ export const NodesPage = ({
                         }, [])
                         .map((item, idx) =>
                           item === 'ellipsis' ? (
+                            // An ellipsis has no identity of its own; its position does.
+                            // oxlint-disable-next-line react/no-array-index-key
                             <PaginationItem key={`ellipsis-${idx}`}>
                               <PaginationEllipsis />
                             </PaginationItem>

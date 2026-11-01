@@ -48,7 +48,7 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
   const tabParam = searchParams.get('tab');
   const defaultTab: TabKey = tabParam === 'peers' || tabParam === 'config' ? tabParam : 'overview';
 
-  const node = id != null ? (nodes.find((n) => n.id === id) ?? null) : null;
+  const node = id === undefined ? null : (nodes.find((n) => n.id === id) ?? null);
 
   const onTabChange = (value: string) => {
     setSearchParams(value === 'overview' ? {} : { tab: value }, { replace: true });
@@ -70,24 +70,26 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
     const controller = new AbortController();
     setStatsLoading(true);
     setStatsError('');
-    apiFetch(`/api/nodes/${encodeURIComponent(nodeId)}/stats`, { signal: controller.signal })
-      .then((res) => {
+    const load = async () => {
+      try {
+        const res = await apiFetch(`/api/nodes/${encodeURIComponent(nodeId)}/stats`, {
+          signal: controller.signal,
+        });
         if (!res.ok) throw new Error('Stats unavailable');
-        return res.json() as Promise<NodeStats>;
-      })
-      .then((data) => {
-        setStats(data);
+        setStats((await res.json()) as NodeStats);
         setStatsError('');
-      })
-      .catch((err: unknown) => {
+      } catch (err) {
         if ((err as Error).name === 'AbortError') return;
         setStats(null);
         setStatsError('Stats unavailable');
-      })
-      .finally(() => {
+      } finally {
         if (!controller.signal.aborted) setStatsLoading(false);
-      });
+      }
+    };
+    void load();
     return () => controller.abort();
+    // refreshStatsTrigger isn't read inside: bumping it is how callers ask for a reload.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [nodeId, apiFetch, refreshStatsTrigger]);
 
   const handlePeersChanged = () => {
@@ -328,7 +330,7 @@ export const NodeDetailPage = ({ nodes, apiFetch, onReloadNodes }: Props) => {
                     </div>
                     {possible > 0 && (
                       <p className="text-xs text-muted-foreground">
-                        {free} slot{free !== 1 ? 's' : ''} free
+                        {free} slot{free === 1 ? '' : 's'} free
                       </p>
                     )}
                   </div>

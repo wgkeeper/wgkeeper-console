@@ -23,6 +23,8 @@ const renderConfigLine = (line: string) => {
 
 export const renderConfig = (text: string) =>
   text.split('\n').map((line, index, arr) => (
+    // Config lines repeat and never move, so their position is their identity.
+    // oxlint-disable-next-line react/no-array-index-key
     <span key={index}>
       {renderConfigLine(line)}
       {index < arr.length - 1 ? '\n' : null}

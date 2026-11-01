@@ -7,7 +7,7 @@ import './index.css';
 import App from './App.tsx';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
-const root = document.getElementById('root');
+const root = document.querySelector('#root');
 if (!root) throw new Error('Root element #root not found');
 
 createRoot(root).render(

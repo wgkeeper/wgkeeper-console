@@ -16,7 +16,7 @@ type Props = {
   error: string;
   isSubmitting: boolean;
   onChange: (field: 'username' | 'password', value: string) => void;
-  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+  onSubmit: (event: React.SubmitEvent<HTMLFormElement>) => void;
 };
 
 export const LoginScreen = ({ form, error, isSubmitting, onChange, onSubmit }: Props) => {

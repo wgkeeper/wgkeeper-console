@@ -123,7 +123,7 @@ function App() {
     localStorage.setItem('wg-theme', theme);
   }, [theme]);
 
-  const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleLogin = async (event: React.SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLoginError('');
     setIsLoginSubmitting(true);
@@ -195,7 +195,7 @@ function App() {
     }
   };
 
-  const handleChangePassword = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleChangePassword = async (event: React.SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     setPasswordError('');
     setIsPasswordSubmitting(true);

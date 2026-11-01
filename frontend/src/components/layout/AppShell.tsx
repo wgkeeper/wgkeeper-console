@@ -60,7 +60,7 @@ export const AppShell = ({
   const location = useLocation();
   const pathname = location.pathname;
 
-  const detailMatch = /^\/nodes\/([^/]+)/.exec(pathname);
+  const detailMatch = /^\/nodes\/([^/]+)/u.exec(pathname);
   const detailNode = detailMatch ? nodes.find((n) => n.id === detailMatch[1]) : undefined;
 
   const pageMeta = (() => {
@@ -77,7 +77,7 @@ export const AppShell = ({
   useEffect(() => {
     let page: string;
     if (pathname.startsWith('/profile')) page = 'Profile';
-    else if (/^\/nodes\/[^/]+/.test(pathname)) {
+    else if (/^\/nodes\/[^/]+/u.test(pathname)) {
       const node = nodes.find((n) => pathname.includes(n.id));
       page = node ? node.address : 'Node';
     } else {

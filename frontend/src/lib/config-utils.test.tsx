@@ -86,7 +86,7 @@ describe('renderConfig', () => {
 
     it('inserts \\n between lines but not after the last', () => {
       const result = renderConfig('a\nb\nc');
-      const html = renderToStaticMarkup(<>{result}</>);
+      const html = renderToStaticMarkup(<div>{result}</div>);
       // two newlines for three lines: between 1-2 and 2-3
       expect(html.split('\n')).toHaveLength(3);
     });
