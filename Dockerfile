@@ -1,7 +1,8 @@
 # Stage 1: Build frontend
-FROM node:24-alpine AS frontend-builder
+FROM node:26-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS frontend-builder
 
-RUN corepack enable && corepack prepare pnpm@11 --activate
+# Node 25+ no longer ships corepack, so install pnpm with npm.
+RUN npm install -g pnpm@12.16.1
 
 WORKDIR /app
 COPY frontend/package.json frontend/pnpm-lock.yaml ./frontend/
@@ -11,7 +12,7 @@ COPY frontend/ ./frontend/
 RUN mkdir -p backend/public && cd frontend && pnpm run build
 
 # Stage 2: Build backend
-FROM golang:1.26-alpine AS backend-builder
+FROM golang:1.27-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS backend-builder
 
 WORKDIR /app
 
@@ -27,7 +28,7 @@ RUN go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g cmd/server/main.go -o
 RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o server ./cmd/server
 
 # Stage 3: Final image
-FROM alpine:3.23
+FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
 
 WORKDIR /app
 
